@@ -37,4 +37,23 @@ pub const Reader = struct {
 
         return std.fmt.parseInt(u32, buffer[0..size], 10) catch unreachable;
     }
+
+    pub fn next_line(self: *Self) ?[]const u8 {
+        const line_start = self.ptr;
+        while (self.ptr < self.data.len and self.data[self.ptr] != '\n') {
+            self.ptr += 1;
+        }
+        if (line_start == self.ptr) {
+            return null;
+        }
+        self.ptr += 1;
+        return self.data[line_start .. self.ptr - 1];
+    }
+
+    pub fn peak_next_line(self: *Self) ?[]const u8 {
+        const original_ptr = self.ptr;
+        const line = self.next_line();
+        self.ptr = original_ptr;
+        return line;
+    }
 };
