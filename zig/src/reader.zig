@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const SeekFrom = enum { Start, Current, End };
+
 pub const Reader = struct {
     data: []const u8,
     ptr: u32,
@@ -14,26 +16,31 @@ pub const Reader = struct {
         return Self{ .data = data, .ptr = 0 };
     }
 
-    pub fn next_u32(self: *Self) ?u32 {
+    pub fn next_u32(self: *Self, ignore_whitespace: bool) ?u32 {
         var buffer: [10:0]u8 = undefined;
         var size: u32 = 0;
 
+        const original_ptr = self.ptr;
+
         while (self.ptr < self.data.len) {
-            const next_char = self.data[self.ptr];
+            const char = self.data[self.ptr];
             self.ptr += 1;
-            if (next_char == ' ' or next_char == '\n') {
-                if (size > 0) {
-                    break;
-                }
-            } else {
-                buffer[size] = next_char;
+            if (std.ascii.isDigit(char)) {
+                buffer[size] = char;
                 size += 1;
+            } else if (size > 0) {
+                break;
+            } else if (!ignore_whitespace and (char == ' ' or char == '\n')) {
+                break;
             }
         }
 
         if (size == 0) {
+            self.ptr = original_ptr;
             return null;
         }
+
+        self.ptr -= 1;
 
         return std.fmt.parseInt(u32, buffer[0..size], 10) catch unreachable;
     }
@@ -50,10 +57,52 @@ pub const Reader = struct {
         return self.data[line_start .. self.ptr - 1];
     }
 
+    pub fn next_char(self: *Self) ?u8 {
+        if (self.ptr >= self.data.len) {
+            return null;
+        }
+        self.ptr += 1;
+        return self.data[self.ptr - 1];
+    }
+
     pub fn peak_next_line(self: *Self) ?[]const u8 {
         const original_ptr = self.ptr;
         const line = self.next_line();
         self.ptr = original_ptr;
         return line;
+    }
+
+    pub fn seek_to_next_substr(self: *Self, substr: []const u8) ?u32 {
+        var completed_substr_idx: u32 = 0;
+        while (self.ptr < self.data.len and completed_substr_idx < substr.len) {
+            const char = self.data[self.ptr];
+            if (char == substr[completed_substr_idx]) {
+                completed_substr_idx += 1;
+            } else {
+                completed_substr_idx = 0;
+            }
+            self.ptr += 1;
+        }
+        if (completed_substr_idx == substr.len) {
+            self.ptr -= @intCast(substr.len);
+            return self.ptr;
+        }
+        return null;
+    }
+
+    pub fn seek(self: *Self, from: SeekFrom, distance: i32) void {
+        switch (from) {
+            .Current => {
+                const new_ptr = @as(i64, self.ptr) + @as(i64, distance);
+                self.ptr = @min(@max(0, @as(u32, @intCast(new_ptr))), @as(u32, @intCast(self.data.len - 1)));
+            },
+            else => {
+                @panic("Unhandled");
+            },
+        }
+    }
+
+    pub fn tell(self: *Self) u32 {
+        return self.ptr;
     }
 };
