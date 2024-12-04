@@ -16,6 +16,10 @@ pub const Reader = struct {
         return Self{ .data = data, .ptr = 0 };
     }
 
+    pub fn get_data(self: *Self) []const u8 {
+        return self.data;
+    }
+
     pub fn next_u32(self: *Self, ignore_whitespace: bool) ?u32 {
         var buffer: [10:0]u8 = undefined;
         var size: u32 = 0;
