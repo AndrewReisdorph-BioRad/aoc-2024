@@ -55,6 +55,10 @@ pub const Reader = struct {
             self.ptr += 1;
         }
         if (line_start == self.ptr) {
+            if (self.ptr < self.data.len and self.data[self.ptr] == '\n') {
+                self.ptr += 1;
+                return &"".*;
+            }
             return null;
         }
         self.ptr += 1;
