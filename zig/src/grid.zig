@@ -3,6 +3,12 @@ pub const Position = struct {
     y: i64,
     const Self = @This();
 
+    pub fn from_step(self: Self, direction: Direction) Self {
+        var new_position = self;
+        new_position.move_direction(direction);
+        return new_position;
+    }
+
     pub fn move_direction(self: *Self, direction: Direction) void {
         switch (direction) {
             .north => self.north(),
@@ -49,7 +55,28 @@ pub const Position = struct {
     }
 };
 
-pub const Direction = enum { north, south, east, west, northwest, northeast, southwest, southeast };
+pub const Direction = enum(u4) {
+    north,
+    south,
+    east,
+    west,
+    northwest,
+    northeast,
+    southwest,
+    southeast,
+    pub fn turn_90_degrees(self: *@This()) void {
+        switch (self.*) {
+            .north => self.* = Direction.east,
+            .east => self.* = Direction.south,
+            .south => self.* = Direction.west,
+            .west => self.* = Direction.north,
+            .northeast => self.* = Direction.southeast,
+            .northwest => self.* = Direction.northeast,
+            .southeast => self.* = Direction.southwest,
+            .southwest => self.* = Direction.northwest,
+        }
+    }
+};
 
 pub const Grid = struct {
     data: []const u8,
@@ -78,6 +105,13 @@ pub const Grid = struct {
             return self.data[offset];
         }
         return null;
+    }
+
+    pub fn get_position_from_offset(self: *Self, offset: u32) ?Position {
+        const y = @as(u32, @intCast(@as(u64, offset) / (self.width + 1)));
+        const x = offset % (self.width + 1);
+
+        return Position{ .x = @as(i64, @intCast(x)), .y = @as(i64, @intCast(y)) };
     }
 
     pub fn get_position_offset(self: *Self, position: Position) ?u64 {
