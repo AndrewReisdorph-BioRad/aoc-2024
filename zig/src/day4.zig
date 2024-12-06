@@ -5,6 +5,10 @@ const Direction = @import("grid.zig").Direction;
 const Position = @import("grid.zig").Position;
 const benchmark = @import("benchmark.zig");
 
+const day = 4;
+const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+
 fn search_string(grid: *Grid, position: Position, direction: Direction, string: []const u8) bool {
     var candidate_position = position;
 
@@ -85,7 +89,7 @@ pub fn part_two_naive(reader: *Reader) u64 {
     return sum;
 }
 
-pub fn part_two_optimized(reader: *Reader) u64 {
+pub fn part_two(reader: *Reader) u64 {
     var sum: u64 = 0;
     var grid = Grid.init(reader.get_data());
     var position_iterator = grid.iter_positions();
@@ -121,67 +125,48 @@ pub fn part_two_optimized(reader: *Reader) u64 {
     return sum;
 }
 
-// Min: 316 µs
-// Max: 521 µs
-// Mean: 331.953 µs
-// Median: 331 µs
-// Standard Deviation: 10.241913444273939 µs
 pub fn part1_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day4.txt");
+            var reader = Reader.from_comptime_path(data_path);
             _ = part_one(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5, .iterations = 100 });
 }
 
-// Optimized:
-// Min: 22 µs
-// Max: 69 µs
-// Mean: 22.485 µs
-// Median: 22 µs
-// Standard Deviation: 2.0079280365590777 µs
-// Naive
-// Min: 508 µs
-// Max: 1.161 ms
-// Mean: 542.683 µs
-// Median: 539 µs
-// Standard Deviation: 30.846369494642374 µs
 pub fn part2_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day4.txt");
-            _ = part_two_optimized(&reader);
+            var reader = Reader.from_comptime_path(data_path);
+            _ = part_two(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 1000 });
+    }.run, .warm_up_iterations = 5, .iterations = 100 });
 }
 
 test "part 1 small" {
-    var reader = Reader.from_comptime_path("./data/day4_small.txt");
+    var reader = Reader.from_comptime_path(small_data_path);
     const result = part_one(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 18);
 }
 
 test "part 1 big" {
-    var reader = Reader.from_comptime_path("./data/day4.txt");
+    var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 2468);
 }
 
 test "part 2 small" {
-    std.debug.print("running\n", .{});
-    var reader = Reader.from_comptime_path("./data/day4_small.txt");
-    const result = part_two_optimized(&reader);
+    var reader = Reader.from_comptime_path(small_data_path);
+    const result = part_two(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 9);
 }
 
 test "part 2 big" {
-    std.debug.print("running\n", .{});
-    var reader = Reader.from_comptime_path("./data/day4.txt");
-    const result = part_two_optimized(&reader);
+    var reader = Reader.from_comptime_path(data_path);
+    const result = part_two(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 1864);
 }

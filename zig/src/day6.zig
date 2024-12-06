@@ -5,6 +5,10 @@ const Position = @import("grid.zig").Position;
 const Direction = @import("grid.zig").Direction;
 const benchmark = @import("benchmark.zig");
 
+const day = 6;
+const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+
 const BitfieldMap = struct {
     data: [130][3]u64,
     const Self = @This();
@@ -154,7 +158,8 @@ pub fn part_two(reader: *Reader) u64 {
                     obstical_set = true;
                     // std.debug.print(" * Setting obstacle at {any}\n", .{obstacle_position});
                 }
-                if (char == '#' or (obstical_set and std.meta.eql(obstacle_position, next_position))) {
+                const current_position_is_obstacle = (obstical_set and std.meta.eql(obstacle_position, next_position));
+                if (char == '#' or current_position_is_obstacle) {
                     direction.turn_90_degrees();
                     // std.debug.print("Found obstical at: {any}\n", .{next_position});
                     // std.debug.print("Changing direction to: {any}\n", .{direction});
@@ -187,69 +192,47 @@ pub fn part_two(reader: *Reader) u64 {
     return sum;
 }
 
-//   0123456789
-// 0 ....#.....
-// 1 .........#
-// 2 ..........
-// 3 ..#.......
-// 4 .......#..
-// 5 ..........
-// 6 .#..^.....
-// 7 ........#.
-// 8 #.........
-// 9 ......#...
-
-// Min: 59 µs
-// Max: 463 µs
-// Mean: 63.043 µs
-// Median: 60 µs
-// Standard Deviation: 16.16499771110402 µs
 pub fn part1_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day6.txt");
+            var reader = Reader.from_comptime_path(data_path);
             _ = part_one(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 1000 });
+    }.run, .warm_up_iterations = 5, .iterations = 100 });
 }
 
-// Min: 109.781 ms
-// Max: 140.296 ms
-// Mean: 121.14801 ms
-// Median: 120.427 ms
-// Standard Deviation: 5.695775245732578 ms
 pub fn part2_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day6.txt");
+            var reader = Reader.from_comptime_path(data_path);
             _ = part_two(&reader);
         }
     }.run, .warm_up_iterations = 5, .iterations = 100 });
 }
 
 test "part 1 small" {
-    var reader = Reader.from_comptime_path("./data/day6_small.txt");
+    var reader = Reader.from_comptime_path(small_data_path);
     const result = part_one(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 41);
 }
 
 test "part 1 big" {
-    var reader = Reader.from_comptime_path("./data/day6.txt");
+    var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 5312);
 }
 
 test "part 2 small" {
-    var reader = Reader.from_comptime_path("./data/day6_small.txt");
+    var reader = Reader.from_comptime_path(small_data_path);
     const result = part_two(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 6);
 }
 
 test "part 2 big" {
-    var reader = Reader.from_comptime_path("./data/day6.txt");
+    var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
     std.debug.print("\nResult: {}\n", .{result});
     try std.testing.expect(result == 1748);

@@ -2,6 +2,10 @@ const std = @import("std");
 const Reader = @import("reader.zig").Reader;
 const benchmark = @import("benchmark.zig");
 
+const day = 1;
+const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+
 const Day1Data = struct {
     left: std.ArrayList(u32),
     right: std.ArrayList(u32),
@@ -21,7 +25,7 @@ pub fn get_sorted_data(reader: *Reader) Day1Data {
     var counter: u32 = 0;
 
     while (true) {
-        const maybe_next = reader.next_u32();
+        const maybe_next = reader.next_u32(true);
         if (maybe_next) |next| {
             if (counter % 2 == 0) {
                 left.append(next) catch unreachable;
@@ -92,20 +96,48 @@ pub fn part_two(reader: *Reader) u64 {
     return similarity;
 }
 
-pub fn day1_part1_benchmark() void {
+pub fn part1_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day1.txt");
+            var reader = Reader.from_comptime_path(data_path);
             _ = part_one(&reader);
         }
-    }.run, .warm_up_iterations = 100, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5, .iterations = 100 });
 }
 
-pub fn day1_part2_benchmark() void {
+pub fn part2_benchmark() void {
     benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
         fn run() void {
-            var reader = @import("reader.zig").Reader.from_comptime_path("./data/day1.txt");
+            var reader = Reader.from_comptime_path(data_path);
             _ = part_two(&reader);
         }
-    }.run, .warm_up_iterations = 100, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5, .iterations = 100 });
+}
+
+test "part 1 small" {
+    var reader = Reader.from_comptime_path(small_data_path);
+    const result = part_one(&reader);
+    std.debug.print("\nResult: {}\n", .{result});
+    try std.testing.expect(result == 11);
+}
+
+test "part 1 big" {
+    var reader = Reader.from_comptime_path(data_path);
+    const result = part_one(&reader);
+    std.debug.print("\nResult: {}\n", .{result});
+    try std.testing.expect(result == 1258579);
+}
+
+test "part 2 small" {
+    var reader = Reader.from_comptime_path(small_data_path);
+    const result = part_two(&reader);
+    std.debug.print("\nResult: {}\n", .{result});
+    try std.testing.expect(result == 31);
+}
+
+test "part 2 big" {
+    var reader = Reader.from_comptime_path(data_path);
+    const result = part_two(&reader);
+    std.debug.print("\nResult: {}\n", .{result});
+    try std.testing.expect(result == 23981443);
 }
