@@ -20,6 +20,35 @@ pub const Reader = struct {
         return self.data;
     }
 
+    pub fn next_int(self: *Self, T: type, ignore_whitespace: bool) ?T {
+        var buffer: [32]u8 = undefined;
+        var size: u32 = 0;
+
+        const original_ptr = self.ptr;
+
+        while (self.ptr < self.data.len) {
+            const char = self.data[self.ptr];
+            self.ptr += 1;
+            if (std.ascii.isDigit(char)) {
+                buffer[size] = char;
+                size += 1;
+            } else if (size > 0) {
+                break;
+            } else if (!ignore_whitespace and (char == ' ' or char == '\n')) {
+                break;
+            }
+        }
+
+        if (size == 0) {
+            self.ptr = original_ptr;
+            return null;
+        }
+
+        self.ptr -= 1;
+
+        return std.fmt.parseInt(T, buffer[0..size], 10) catch unreachable;
+    }
+
     pub fn next_u32(self: *Self, ignore_whitespace: bool) ?u32 {
         var buffer: [10:0]u8 = undefined;
         var size: u32 = 0;
