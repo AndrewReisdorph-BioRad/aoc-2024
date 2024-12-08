@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const BenchFunc = fn () void;
 
-pub const BenchmarkOptions = struct { warm_up_iterations: u32, iterations: u32, func: BenchFunc };
+pub const BenchmarkOptions = struct { name: []const u8, max_iterations: u32 = 10000, warm_up_iterations: u32, func: BenchFunc };
 
 fn format_microseconds_str(microseconds: f64) []u8 {
     const microseconds_in_a_second: f64 = 1_000_000;
@@ -16,31 +16,46 @@ fn format_microseconds_str(microseconds: f64) []u8 {
 }
 
 pub fn benchmark(options: BenchmarkOptions) void {
-    std.debug.print("Warming up... {d} iterations\n", .{options.warm_up_iterations});
+    std.debug.print("========================================\n", .{});
+    std.debug.print("Benchmarking: {s}\n", .{options.name});
+    const warmup_begin = std.time.microTimestamp();
+    std.debug.print("Warming up... {d} iterations", .{options.warm_up_iterations});
     for (0..options.warm_up_iterations) |_| {
         options.func();
     }
+    const warmup_elapsed = std.time.microTimestamp() - warmup_begin;
+    const warmup_str = format_microseconds_str(@as(f64, @floatFromInt(warmup_elapsed)));
+    std.debug.print(" --> {s}\n", .{warmup_str});
 
-    std.debug.print("Measuring... {d} iterations\n", .{options.iterations});
+    std.debug.print("Measuring...", .{});
 
-    // const super_begin = std.time.microTimestamp();
+    const super_begin = std.time.microTimestamp();
 
     var sum: i64 = 0;
-    var times: [options.iterations:0]i64 = undefined;
-    for (0..options.iterations) |i| {
+    var times: [options.max_iterations]i64 = undefined;
+    var iterations: usize = 0;
+    const five_seconds_in_microseconds = 5_000_000;
+    var total_elapsed: i64 = 0;
+    while (true) {
         const begin = std.time.microTimestamp();
         options.func();
         const elapsed = std.time.microTimestamp() - begin;
-        times[i] = elapsed;
+        times[iterations] = elapsed;
         sum += elapsed;
+        iterations += 1;
+        total_elapsed = std.time.microTimestamp() - super_begin;
+        if (total_elapsed > five_seconds_in_microseconds or iterations >= options.max_iterations) {
+            break;
+        }
     }
 
-    // const total_elapsed = std.time.microTimestamp() - super_begin;
+    const measure_str = format_microseconds_str(@as(f64, @floatFromInt(total_elapsed)));
+    std.debug.print(" {d} iterations --> {s}\n", .{ iterations, measure_str });
 
     var min: i128 = std.math.maxInt(i64);
     var max: i128 = std.math.minInt(i64);
 
-    for (times) |time| {
+    for (times[0..iterations]) |time| {
         if (time > max) {
             max = time;
         }
@@ -50,17 +65,17 @@ pub fn benchmark(options: BenchmarkOptions) void {
     }
 
     const total = @as(f64, @floatFromInt(sum));
-    const population_size = @as(f64, times.len);
+    const population_size = @as(f64, @floatFromInt(iterations));
     const mean: f64 = total / population_size;
 
     var sum_of_dist_squared: f64 = 0.0;
-    for (times) |time| {
+    for (times[0..iterations]) |time| {
         sum_of_dist_squared += std.math.pow(f64, (@as(f64, @floatFromInt(time)) - mean), 2);
     }
     const sigma = std.math.sqrt(sum_of_dist_squared / population_size);
 
-    std.mem.sort(i64, &times, {}, std.sort.asc(i64));
-    const median = times[times.len / 2];
+    std.mem.sort(i64, times[0..iterations], {}, std.sort.asc(i64));
+    const median = times[iterations / 2];
 
     const min_str = format_microseconds_str(@as(f64, @floatFromInt(min)));
     defer std.heap.page_allocator.free(min_str);
@@ -73,5 +88,6 @@ pub fn benchmark(options: BenchmarkOptions) void {
     const sigma_str = format_microseconds_str(sigma);
     defer std.heap.page_allocator.free(sigma_str);
 
-    std.debug.print("Min: {s}\nMax: {s}\nMean: {s}\nMedian: {s}\nStandard Deviation: {s}\n", .{ min_str, max_str, mean_str, median_str, sigma_str });
+    std.debug.print("   Min: {s}\n   Max: {s}\n  Mean: {s}\nMedian: {s}\nStdDev: {s}\n", .{ min_str, max_str, mean_str, median_str, sigma_str });
+    std.debug.print("========================================\n", .{});
 }

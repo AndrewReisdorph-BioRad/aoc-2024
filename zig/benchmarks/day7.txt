@@ -1,0 +1,20 @@
+========================================
+Benchmarking: Day 7 Part 1
+Warming up... 5 iterations --> 20.283 ms
+Measuring... 2979 iterations --> 5.000467 s
+   Min: 1.568 ms
+   Max: 29.376 ms
+  Mean: 1.678484055052031 ms
+Median: 1.655 ms
+StdDev: 537.6967034289437 µs
+========================================
+========================================
+Benchmarking: Day 7 Part 2
+Warming up... 5 iterations --> 225.966 ms
+Measuring... 112 iterations --> 5.044967 s
+   Min: 42.894 ms
+   Max: 83.565 ms
+  Mean: 45.04391964285715 ms
+Median: 44.38 ms
+StdDev: 4.681798092343507 ms
+========================================

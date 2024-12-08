@@ -15,26 +15,33 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "zig",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    // const lib = b.addStaticLibrary(.{
+    //     .name = "zig",
+    //     // In this case the main source file is merely a path, however, in more
+    //     // complicated build scripts, this could be a generated file.
+    //     .root_source_file = b.path("src/main.zig"),
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
 
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
+    // // This declares intent for the library to be installed into the standard
+    // // location when the user invokes the "install" step (the default step when
+    // // running `zig build`).
+    // b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
-        .name = "zig",
+        .name = "AOC2024",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    const day_option = b.option(u8, "day", "AOC Day to Execute");
+    const day_path = std.fmt.allocPrint(std.heap.page_allocator, "src/day{d}.zig", .{day_option.?}) catch unreachable;
+    const day_module = b.createModule(.{ .root_source_file = .{ .cwd_relative = day_path } });
+
+    exe.root_module.addImport("day", day_module);
+    exe.root_module.addAnonymousImport("day", .{ .root_source_file = .{ .cwd_relative = day_path } });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

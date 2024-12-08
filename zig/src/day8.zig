@@ -59,6 +59,13 @@ pub fn part_one(reader: *Reader) u64 {
         }
     }
 
+    // Benchmarks are better without free-ing memory!
+    // for (antenna_map.inner) |maybe_entry| {
+    //     if (maybe_entry) |entry| {
+    //         entry.deinit();
+    //     }
+    // }
+
     return @as(u64, antinodes.count);
 }
 
@@ -123,25 +130,29 @@ pub fn part_two(reader: *Reader) u64 {
         }
     }
 
+    // Benchmarks are better without free-ing memory!
+    // for (antenna_map.inner) |maybe_entry| {
+    //     if (maybe_entry) |entry| {
+    //         entry.deinit();
+    //     }
+    // }
+
     return @as(u64, antinodes.count);
 }
 
-pub fn part1_benchmark() void {
-    benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
+pub fn do_benchmark() void {
+    benchmark.benchmark(benchmark.BenchmarkOptions{ .name = std.fmt.comptimePrint("Day {d} Part 1", .{day}), .func = struct {
         fn run() void {
             var reader = Reader.from_comptime_path(data_path);
             _ = part_one(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 10000 });
-}
-
-pub fn part2_benchmark() void {
-    benchmark.benchmark(benchmark.BenchmarkOptions{ .func = struct {
+    }.run, .warm_up_iterations = 5 });
+    benchmark.benchmark(benchmark.BenchmarkOptions{ .name = std.fmt.comptimePrint("Day {d} Part 2", .{day}), .func = struct {
         fn run() void {
             var reader = Reader.from_comptime_path(data_path);
             _ = part_two(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5 });
 }
 
 test "part 1 small" {

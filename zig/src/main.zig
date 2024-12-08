@@ -1,6 +1,6 @@
-const day6 = @import("day6.zig");
+const std = @import("std");
+const day = @import("day");
 
 pub fn main() !void {
-    //day6.part1_benchmark();
-    //day6.part2_benchmark();
+    day.do_benchmark();
 }

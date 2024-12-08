@@ -1,0 +1,20 @@
+========================================
+Benchmarking: Day 8 Part 1
+Warming up... 5 iterations --> 337 µs
+Measuring... 10000 iterations --> 1.050683 s
+   Min: 46 µs
+   Max: 12.185 ms
+  Mean: 104.9933 µs
+Median: 61 µs
+StdDev: 389.78782517558574 µs
+========================================
+========================================
+Benchmarking: Day 8 Part 2
+Warming up... 5 iterations --> 325 µs
+Measuring... 10000 iterations --> 1.060293 s
+   Min: 46 µs
+   Max: 12.729 ms
+  Mean: 105.9577 µs
+Median: 59 µs
+StdDev: 368.81472897744266 µs
+========================================
