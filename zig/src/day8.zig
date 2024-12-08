@@ -1,17 +1,17 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
+const Reader = @import("utils/reader.zig").Reader;
 const BitField = @import("utils/bitfield.zig").Bitfield;
 const AsciiMap = @import("utils/ascii_map.zig").AsciiMap;
-const Position = @import("grid.zig").Position;
-const PositionIterator = @import("grid.zig").PositionIterator;
-const Grid = @import("grid.zig").Grid;
-const benchmark = @import("benchmark.zig");
+const Position = @import("utils/grid.zig").Position;
+const PositionIterator = @import("utils/grid.zig").PositionIterator;
+const Grid = @import("utils/grid.zig").Grid;
+const benchmark = @import("utils/benchmark.zig");
 
 const day = 8;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
-const AntennaPosition = struct { position: Position, processed: bool };
+const AntennaPosition = struct { position: Position };
 
 pub fn part_one(reader: *Reader) u64 {
     var grid = Grid.init(reader.get_data());
@@ -31,7 +31,7 @@ pub fn part_one(reader: *Reader) u64 {
         if (!antenna_map.has(at_position)) {
             antenna_map.set(at_position, std.ArrayList(AntennaPosition).init(std.heap.page_allocator));
         }
-        antenna_map.get(at_position).?.append(AntennaPosition{ .position = position, .processed = false }) catch unreachable;
+        antenna_map.get(at_position).?.append(AntennaPosition{ .position = position }) catch unreachable;
     }
 
     for ('0'..('z' + 1)) |antenna| {
@@ -87,7 +87,7 @@ pub fn part_two(reader: *Reader) u64 {
         if (!antenna_map.has(at_position)) {
             antenna_map.set(at_position, std.ArrayList(AntennaPosition).init(std.heap.page_allocator));
         }
-        antenna_map.get(at_position).?.append(AntennaPosition{ .position = position, .processed = false }) catch unreachable;
+        antenna_map.get(at_position).?.append(AntennaPosition{ .position = position }) catch unreachable;
     }
 
     for ('0'..('z' + 1)) |antenna| {

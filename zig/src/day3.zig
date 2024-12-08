@@ -1,12 +1,12 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
-const benchmark = @import("benchmark.zig");
-const SeekFrom = @import("reader.zig").SeekFrom;
+const Reader = @import("utils/reader.zig").Reader;
+const SeekFrom = @import("utils/reader.zig").SeekFrom;
+const benchmark = @import("utils/benchmark.zig");
 
 const day = 3;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
-const alt_small_data_path = std.fmt.comptimePrint("./data/day{d}_small_b.txt", .{day});
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
+const alt_small_data_path = std.fmt.comptimePrint("../data/day{d}_small_b.txt", .{day});
 
 pub fn part_one(reader: *Reader) u64 {
     var sum: u64 = 0;

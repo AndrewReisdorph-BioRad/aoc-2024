@@ -1,10 +1,10 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
-const benchmark = @import("benchmark.zig");
+const Reader = @import("utils/reader.zig").Reader;
+const benchmark = @import("utils/benchmark.zig");
 
 const day = 1;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 const Day1Data = struct {
     left: std.ArrayList(u32),

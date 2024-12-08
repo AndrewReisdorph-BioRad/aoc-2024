@@ -1,13 +1,13 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
-const Grid = @import("grid.zig").Grid;
-const Direction = @import("grid.zig").Direction;
-const Position = @import("grid.zig").Position;
-const benchmark = @import("benchmark.zig");
+const Reader = @import("utils/reader.zig").Reader;
+const Grid = @import("utils/grid.zig").Grid;
+const Direction = @import("utils/grid.zig").Direction;
+const Position = @import("utils/grid.zig").Position;
+const benchmark = @import("utils/benchmark.zig");
 
 const day = 4;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 fn search_string(grid: *Grid, position: Position, direction: Direction, string: []const u8) bool {
     var candidate_position = position;

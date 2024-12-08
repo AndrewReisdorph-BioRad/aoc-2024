@@ -1,13 +1,13 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
-const Grid = @import("grid.zig").Grid;
-const Direction = @import("grid.zig").Direction;
-const Position = @import("grid.zig").Position;
-const benchmark = @import("benchmark.zig");
+const Reader = @import("utils/reader.zig").Reader;
+const Grid = @import("utils/grid.zig").Grid;
+const Direction = @import("utils/grid.zig").Direction;
+const Position = @import("utils/grid.zig").Position;
+const benchmark = @import("utils/benchmark.zig");
 
 const day = 5;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 fn check_page_order(pages: *std.ArrayList(u8), comes_before: []const u8) bool {
     for (pages.items) |page| {
