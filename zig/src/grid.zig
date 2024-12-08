@@ -53,6 +53,31 @@ pub const Position = struct {
     pub fn east(self: *Self) void {
         self.x += 1;
     }
+
+    pub fn clone(self: *const Self) Self {
+        return self.*;
+    }
+
+    pub fn delta(self: *const Self, other: Self) PositionDelta {
+        return PositionDelta{ .x = self.x - other.x, .y = self.y - other.y };
+    }
+
+    pub fn apply_delta(self: *Self, d: PositionDelta) void {
+        self.x += d.x;
+        self.y += d.y;
+    }
+};
+
+pub const PositionDelta = struct {
+    x: i64,
+    y: i64,
+    const Self = @This();
+
+    pub fn invert(self: *Self) *Self {
+        self.x *= -1;
+        self.y *= -1;
+        return self;
+    }
 };
 
 pub const Direction = enum(u4) {
