@@ -1,10 +1,10 @@
 const std = @import("std");
-const Reader = @import("reader.zig").Reader;
-const benchmark = @import("benchmark.zig");
+const Reader = @import("utils/reader.zig").Reader;
+const benchmark = @import("utils/benchmark.zig");
 
-const day = 0;
-const data_path = std.fmt.comptimePrint("./data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("./data/day{d}_small.txt", .{day});
+const day = 9;
+const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
+const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 pub fn part_one(reader: *Reader) u64 {
     var sum: u64 = 0;
@@ -36,13 +36,13 @@ pub fn do_benchmark() void {
             var reader = Reader.from_comptime_path(data_path);
             _ = part_one(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5 });
     benchmark.benchmark(benchmark.BenchmarkOptions{ .name = std.fmt.comptimePrint("Day {d} Part 2", .{day}), .func = struct {
         fn run() void {
             var reader = Reader.from_comptime_path(data_path);
             _ = part_two(&reader);
         }
-    }.run, .warm_up_iterations = 5, .iterations = 10000 });
+    }.run, .warm_up_iterations = 5 });
 }
 
 test "part 1 small" {
