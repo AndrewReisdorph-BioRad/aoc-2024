@@ -22,7 +22,7 @@ pub fn Stack(T: type, length: comptime_int) type {
                 return null;
             }
             self.size -= 1;
-            return self.data[self.size + 1];
+            return self.data[self.size];
         }
 
         pub fn peek(self: *Self) ?T {
