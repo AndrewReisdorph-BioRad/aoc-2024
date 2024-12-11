@@ -2,7 +2,7 @@ const std = @import("std");
 const Reader = @import("utils/reader.zig").Reader;
 const benchmark = @import("utils/benchmark.zig");
 
-const day = 9;
+const day = 0;
 const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
 const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
