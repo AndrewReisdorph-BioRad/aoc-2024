@@ -80,15 +80,15 @@ pub const PositionDelta = struct {
     }
 };
 
-pub const Direction = enum(u4) {
-    north,
-    south,
-    east,
-    west,
-    northwest,
-    northeast,
-    southwest,
-    southeast,
+pub const Direction = enum(u8) {
+    north = 1,
+    northeast = 2,
+    east = 4,
+    southeast = 8,
+    south = 16,
+    southwest = 32,
+    west = 64,
+    northwest = 128,
     pub fn turn_90_degrees(self: *@This()) void {
         switch (self.*) {
             .north => self.* = Direction.east,
