@@ -79,6 +79,9 @@ pub const Reader = struct {
     }
 
     pub fn next_line(self: *Self) ?[]const u8 {
+        if (self.ptr >= self.data.len - 1) {
+            return null;
+        }
         const line_start = self.ptr;
         while (self.ptr < self.data.len and self.data[self.ptr] != '\n') {
             self.ptr += 1;
