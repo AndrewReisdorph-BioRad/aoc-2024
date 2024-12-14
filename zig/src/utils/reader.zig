@@ -20,6 +20,28 @@ pub const Reader = struct {
         return self.data;
     }
 
+    pub fn search_next_int(self: *Self, T: type) ?T {
+        var value: T = 0;
+
+        // Skip any non-digit characters
+        while (self.data[self.ptr] < 48 or self.data[self.ptr] > 57) {
+            self.ptr += 1;
+            if (self.ptr >= self.data.len) {
+                return null;
+            }
+        }
+        const negative = self.ptr > 0 and self.data[self.ptr - 1] == '-';
+        while (self.data[self.ptr] >= 48 and self.data[self.ptr] <= 57) {
+            value = value * 10 + (self.data[self.ptr] - 48);
+            self.ptr += 1;
+            if (self.ptr >= self.data.len) {
+                break;
+            }
+        }
+
+        return if (negative) -value else value;
+    }
+
     pub fn next_int(self: *Self, T: type, ignore_whitespace: bool) ?T {
         var buffer: [32]u8 = undefined;
         var size: u32 = 0;
