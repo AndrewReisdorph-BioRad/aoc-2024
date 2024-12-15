@@ -119,6 +119,15 @@ pub const Reader = struct {
         return self.data[line_start .. self.ptr - 1];
     }
 
+    pub fn peek_previous_char(self: *Self) ?u8 {
+        if (self.ptr == 0) {
+            return null;
+        } else if (self.ptr == 1) {
+            return self.data[1];
+        }
+        return self.data[self.ptr - 2];
+    }
+
     pub fn next_char(self: *Self) ?u8 {
         if (self.ptr >= self.data.len) {
             return null;

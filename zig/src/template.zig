@@ -7,27 +7,15 @@ const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
 const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 pub fn part_one(reader: *Reader) u64 {
-    var sum: u64 = 0;
+    _ = reader;
 
-    // Remove this vvv
-    if (reader.data.len > 0) {
-        sum += 1;
-    }
-    // Remove this ^^^
-
-    return sum;
+    return 0;
 }
 
 pub fn part_two(reader: *Reader) u64 {
-    var sum: u64 = 0;
+    _ = reader;
 
-    // Remove this vvv
-    if (reader.data.len > 0) {
-        sum += 1;
-    }
-    // Remove this ^^^
-
-    return sum;
+    return 0;
 }
 
 pub fn do_benchmark() void {
