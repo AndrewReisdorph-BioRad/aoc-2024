@@ -1,6 +1,7 @@
 const std = @import("std");
 const Reader = @import("utils/reader.zig").Reader;
 const benchmark = @import("utils/benchmark.zig");
+const Stack = @import("utils/stack.zig").Stack;
 
 const day = 15;
 const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
@@ -16,7 +17,8 @@ const Tile = enum {
     wall,
     empty,
     box,
-    wide_box,
+    box_left,
+    box_right,
     robot,
 
     pub fn from_char(char: u8) Self {
@@ -34,19 +36,26 @@ const Tile = enum {
             .wall => return '#',
             .empty => return '.',
             .box => return 'O',
+            .box_left => return '[',
+            .box_right => return ']',
             .robot => return '@',
         }
     }
 };
 
+const TileMovePlan = struct { tile: Tile, old_position: u32, new_position: u32 };
+
 const Warehouse = struct {
     const Self = @This();
+    const move_stack_size = 12;
     width: u32,
     height: u32,
     tiles: std.ArrayList(Tile),
     robot_index: u32,
-
-    pub fn init(reader: *Reader) Self {
+    wide: bool,
+    move_plan: std.ArrayList(TileMovePlan),
+    move_stack: Stack(u32, move_stack_size),
+    pub fn init(reader: *Reader, wide: bool) Self {
         var tiles = std.ArrayList(Tile).init(std.heap.page_allocator);
         var width: u32 = 0;
         var height: u32 = 0;
@@ -60,20 +69,184 @@ const Warehouse = struct {
                 height += 1;
             } else {
                 if (height == 0) {
-                    width += 1;
+                    width += 1 + @as(u8, @intFromBool(wide));
                 }
                 const tile = Tile.from_char(next);
-                if (tile == Tile.robot) {
-                    robot_index = @as(u32, @intCast(tiles.items.len));
+                switch (tile) {
+                    .wall, .empty => {
+                        tiles.append(tile) catch unreachable;
+                        if (wide) {
+                            tiles.append(tile) catch unreachable;
+                        }
+                    },
+                    .box => {
+                        if (wide) {
+                            tiles.append(Tile.box_left) catch unreachable;
+                            tiles.append(Tile.box_right) catch unreachable;
+                        } else {
+                            tiles.append(tile) catch unreachable;
+                        }
+                    },
+                    .robot => {
+                        robot_index = @as(u32, @intCast(tiles.items.len));
+                        tiles.append(tile) catch unreachable;
+                        if (wide) {
+                            tiles.append(Tile.empty) catch unreachable;
+                        }
+                    },
+                    else => @panic("unexpected tile"),
                 }
-                tiles.append(tile) catch unreachable;
             }
         }
 
-        return Self{ .width = width, .height = height, .robot_index = robot_index, .tiles = tiles };
+        return Self{ .move_plan = std.ArrayList(TileMovePlan).init(std.heap.page_allocator), .move_stack = Stack(u32, move_stack_size).init(), .width = width, .wide = wide, .height = height, .robot_index = robot_index, .tiles = tiles };
+    }
+
+    fn move_robot_wide(self: *Self, direction: u8) void {
+        const robot_x: u32 = self.robot_index % self.width;
+        const robot_y: u32 = self.robot_index / self.width;
+
+        if (direction == UP) {
+            if (robot_y == 1) {
+                return;
+            }
+            self.move_plan.clearRetainingCapacity();
+            self.move_stack.clear();
+            self.move_stack.push(self.robot_index) catch unreachable;
+            while (self.move_stack.pop()) |index_to_move| {
+                const tile_to_move = self.tiles.items[index_to_move];
+                const next_tile_index = index_to_move - self.width;
+                const next_tile = self.tiles.items[next_tile_index];
+                self.move_plan.append(.{ .old_position = index_to_move, .new_position = next_tile_index, .tile = tile_to_move }) catch unreachable;
+                if (next_tile == Tile.wall) {
+                    return;
+                } else if (next_tile == Tile.box_right) {
+                    // Add the left and right sides of the box to the move stack
+                    self.move_stack.push(next_tile_index) catch unreachable;
+                    self.move_stack.push(next_tile_index - 1) catch unreachable;
+                } else if (next_tile == Tile.box_left) {
+                    // Add the left and right sides of the box to the move stack
+                    self.move_stack.push(next_tile_index) catch unreachable;
+                    self.move_stack.push(next_tile_index + 1) catch unreachable;
+                }
+            }
+
+            // clear tiles
+            for (self.move_plan.items) |plan| {
+                self.tiles.items[plan.old_position] = Tile.empty;
+            }
+            // move tiles
+            for (self.move_plan.items) |plan| {
+                self.tiles.items[plan.new_position] = plan.tile;
+            }
+
+            self.robot_index -= self.width;
+        } else if (direction == DOWN) {
+            if (robot_y == self.height - 1) {
+                return;
+            }
+            self.move_plan.clearRetainingCapacity();
+            self.move_stack.clear();
+            self.move_stack.push(self.robot_index) catch unreachable;
+            while (self.move_stack.pop()) |index_to_move| {
+                // check if space above is free
+                const tile_to_move = self.tiles.items[index_to_move];
+                const next_tile_index = index_to_move + self.width;
+                const next_tile = self.tiles.items[next_tile_index];
+                self.move_plan.append(.{ .old_position = index_to_move, .new_position = next_tile_index, .tile = tile_to_move }) catch unreachable;
+                if (next_tile == Tile.wall) {
+                    return;
+                } else if (next_tile == Tile.box_right) {
+                    // Add the left and right sides of the box to the move stack
+                    self.move_stack.push(next_tile_index) catch unreachable;
+                    self.move_stack.push(next_tile_index - 1) catch unreachable;
+                } else if (next_tile == Tile.box_left) {
+                    // Add the left and right sides of the box to the move stack
+                    self.move_stack.push(next_tile_index) catch unreachable;
+                    self.move_stack.push(next_tile_index + 1) catch unreachable;
+                }
+            }
+
+            // clear tiles
+            for (self.move_plan.items) |plan| {
+                self.tiles.items[plan.old_position] = Tile.empty;
+            }
+            // move tiles
+            for (self.move_plan.items) |plan| {
+                self.tiles.items[plan.new_position] = plan.tile;
+            }
+
+            self.robot_index += self.width;
+        } else if (direction == LEFT) {
+            if (robot_x == 2) {
+                return;
+            }
+
+            var steps: usize = 1;
+            var found_box: bool = false;
+            while (true) {
+                const next_tile = &self.tiles.items[self.robot_index - steps];
+                if (next_tile.* == Tile.box_right) {
+                    found_box = true;
+                } else if (next_tile.* == Tile.wall) {
+                    return;
+                } else if (next_tile.* == Tile.empty) {
+                    if (found_box) {
+                        for (1..steps + 1) |step| {
+                            if (step % 2 == 0) {
+                                self.tiles.items[self.robot_index - step] = Tile.box_right;
+                            } else {
+                                self.tiles.items[self.robot_index - step] = Tile.box_left;
+                            }
+                        }
+                    }
+                    break;
+                }
+                steps += 1;
+            }
+
+            self.tiles.items[self.robot_index] = Tile.empty;
+            self.robot_index -= 1;
+            self.tiles.items[self.robot_index] = Tile.robot;
+        } else if (direction == RIGHT) {
+            if (robot_x == self.width - 3) {
+                return;
+            }
+
+            var steps: usize = 1;
+            var found_box: bool = false;
+            while (true) {
+                const next_tile = &self.tiles.items[self.robot_index + steps];
+                if (next_tile.* == Tile.box_left) {
+                    found_box = true;
+                    steps += 1;
+                } else if (next_tile.* == Tile.wall) {
+                    return;
+                } else if (next_tile.* == Tile.empty) {
+                    if (found_box) {
+                        for (1..steps + 1) |step| {
+                            if (step % 2 == 0) {
+                                self.tiles.items[self.robot_index + step] = Tile.box_left;
+                            } else {
+                                self.tiles.items[self.robot_index + step] = Tile.box_right;
+                            }
+                        }
+                    }
+                    break;
+                }
+                steps += 1;
+            }
+
+            self.tiles.items[self.robot_index] = Tile.empty;
+            self.robot_index += 1;
+            self.tiles.items[self.robot_index] = Tile.robot;
+        }
     }
 
     pub fn move_robot(self: *Self, direction: u8) void {
+        if (self.wide) {
+            return self.move_robot_wide(direction);
+        }
         // std.debug.print("Moving Robot: {c}\n", .{direction});
 
         const robot_x: u32 = self.robot_index % self.width;
@@ -186,9 +359,11 @@ const Warehouse = struct {
         var sum: u64 = 0;
 
         for (0..self.width * self.height) |idx| {
+            const y = idx / self.width;
+            const x = idx % self.width;
             if (self.tiles.items[idx] == Tile.box) {
-                const y = idx / self.width;
-                const x = idx % self.width;
+                sum += y * 100 + x;
+            } else if (self.tiles.items[idx] == Tile.box_left) {
                 sum += y * 100 + x;
             }
         }
@@ -207,31 +382,41 @@ const Warehouse = struct {
 
     pub fn deinit(self: *Self) void {
         self.tiles.deinit();
+        self.move_plan.deinit();
     }
 };
 
 pub fn part_one(reader: *Reader) u64 {
     // read in map
-    var warehouse = Warehouse.init(reader);
+    var warehouse = Warehouse.init(reader, false);
     defer warehouse.deinit();
-
-    // warehouse.print();
 
     while (reader.next_char()) |next_char| {
         if (next_char == '\n') {
             continue;
         }
         warehouse.move_robot(next_char);
-        // warehouse.print();
     }
 
     return warehouse.sum_box_gps();
 }
 
 pub fn part_two(reader: *Reader) u64 {
-    _ = reader;
+    // read in map
+    var warehouse = Warehouse.init(reader, true);
+    defer warehouse.deinit();
 
-    return 0;
+    var count: u32 = 0;
+
+    while (reader.next_char()) |next_char| {
+        if (next_char == '\n') {
+            continue;
+        }
+        warehouse.move_robot(next_char);
+        count += 1;
+    }
+
+    return warehouse.sum_box_gps();
 }
 
 pub fn do_benchmark() void {
@@ -250,30 +435,25 @@ pub fn do_benchmark() void {
 }
 
 test "part 1 small" {
-    std.debug.print("\nPart 1 Small:\n", .{});
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_one(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 10092);
+    try std.testing.expectEqual(result, 10092);
 }
 
 test "part 1 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1371036);
+    try std.testing.expectEqual(result, 1371036);
 }
 
 test "part 2 small" {
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_two(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 9021);
 }
 
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 1392847);
 }

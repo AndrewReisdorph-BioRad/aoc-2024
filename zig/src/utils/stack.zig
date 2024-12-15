@@ -17,6 +17,10 @@ pub fn Stack(T: type, length: comptime_int) type {
             return;
         }
 
+        pub fn clear(self: *Self) void {
+            self.size = 0;
+        }
+
         pub fn pop(self: *Self) ?T {
             if (self.size == 0) {
                 return null;

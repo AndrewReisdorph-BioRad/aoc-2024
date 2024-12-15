@@ -36,27 +36,23 @@ pub fn do_benchmark() void {
 test "part 1 small" {
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_one(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 1);
 }
 
 test "part 1 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 1);
 }
 
 test "part 2 small" {
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_two(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 1);
 }
 
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    std.debug.print("\nResult: {}\n", .{result});
-    try std.testing.expect(result == 1);
+    try std.testing.expectEqual(result, 1);
 }
