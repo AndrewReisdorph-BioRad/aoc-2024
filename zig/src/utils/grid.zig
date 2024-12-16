@@ -83,12 +83,12 @@ pub const PositionDelta = struct {
 pub const Direction = enum(u8) {
     const Self = @This();
     north = 1,
-    northeast = 2,
-    east = 4,
-    southeast = 8,
-    south = 16,
-    southwest = 32,
-    west = 64,
+    east = 2,
+    south = 4,
+    west = 8,
+    northeast = 16,
+    southeast = 32,
+    southwest = 64,
     northwest = 128,
     pub fn turn_90_degrees_clockwise(self: *Self) void {
         switch (self.*) {
