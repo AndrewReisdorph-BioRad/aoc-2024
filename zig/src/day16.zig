@@ -3,7 +3,7 @@ const Reader = @import("utils/reader.zig").Reader;
 const Grid = @import("utils/grid.zig").Grid;
 const Direction = @import("utils/grid.zig").Direction;
 const Position = @import("utils/grid.zig").Position;
-// const Bitfield = @import("utils/bitfield.zig").Bitfield;
+const Bitfield = @import("utils/bitfield.zig").Bitfield;
 
 const benchmark = @import("utils/benchmark.zig");
 
@@ -42,9 +42,60 @@ const VisitInfo = struct {
     }
 };
 
-const VisitedMapPositions = std.AutoHashMap(u64, void);
+const VisitedMapPositions = Bitfield(map_size);
 
-const MapPath = struct { direction: Direction, cost: u64, current: Position, disqualified: bool, complete: bool = false, optimal: bool = false, visited: VisitedMapPositions };
+const MapPath = struct { direction: Direction, cost: u64, current: Position, visited: VisitedMapPositions };
+
+fn MapPaths(T: type) type {
+    return struct {
+        const Self = @This();
+        const Node = std.DoublyLinkedList(T).Node;
+        data: []?Node = undefined,
+        inner: std.DoublyLinkedList(T) = std.DoublyLinkedList(T){},
+        ptr: usize = 0,
+        allocator: std.mem.Allocator,
+
+        pub fn init(allocator: std.mem.Allocator, length: usize) !Self {
+            const new = Self{ .allocator = allocator, .data = try allocator.alloc(?Node, length) };
+            for (0..length) |i| {
+                new.data[i] = null;
+            }
+            return new;
+        }
+
+        pub fn alloc(self: *Self) !*Node {
+            for (self.ptr..self.data.len) |idx| {
+                if (self.data[idx] == null) {
+                    self.ptr = idx;
+                    self.data[idx] = Node{ .data = undefined };
+                    return &self.data[idx].?;
+                }
+            }
+            return error.noFreeNodes;
+        }
+
+        pub fn first(self: *Self) ?*Node {
+            return self.inner.first;
+        }
+
+        pub fn len(self: *Self) usize {
+            return self.inner.len;
+        }
+
+        pub fn append(self: *Self, node: *Node) void {
+            self.inner.append(node);
+        }
+
+        pub fn remove(self: *Self, node: *Node) void {
+            //TODO: figure out a way to mark the entry in self.data as null
+            self.inner.remove(node);
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.data);
+        }
+    };
+}
 
 pub fn part_one(reader: *Reader) u64 {
     var grid = Grid.init(reader.get_data());
@@ -62,38 +113,40 @@ pub fn part_one(reader: *Reader) u64 {
         }
     }
 
-    var paths = std.ArrayList(MapPath).init(std.heap.page_allocator);
+    var paths = MapPaths(MapPath).init(std.heap.page_allocator, 12500) catch unreachable;
     defer paths.deinit();
 
-    const initial_path = MapPath{ .direction = Direction.east, .cost = 0, .current = start_position, .disqualified = false, .visited = VisitedMapPositions.init(std.heap.page_allocator) };
-    paths.append(initial_path) catch unreachable;
+    const initial_path_node = paths.alloc() catch unreachable;
+    initial_path_node.data = MapPath{ .direction = Direction.east, .cost = 0, .current = start_position, .visited = VisitedMapPositions.init() };
+    paths.append(initial_path_node);
 
-    var global_visited = std.heap.page_allocator.alloc(u8, map_size) catch unreachable;
-    defer std.heap.page_allocator.free(global_visited);
-    @memset(global_visited, 0);
+    var global_visited = std.mem.zeroes([map_size]u8);
 
-    var cheapest_path = &paths.items[0];
+    var cheapest_path_node = initial_path_node;
+    var cheapest_path = &initial_path_node.data;
 
     while (true) {
         // Find the lowest cost path
         var lowest_cost: u64 = std.math.maxInt(u64);
-        for (paths.items) |*path| {
-            if (!path.disqualified and path.cost < lowest_cost) {
-                cheapest_path = path;
-                lowest_cost = path.cost;
+        var head = paths.first();
+        while (head) |node| {
+            if (node.data.cost < lowest_cost) {
+                cheapest_path_node = node;
+                cheapest_path = &cheapest_path_node.data;
+                lowest_cost = cheapest_path.cost;
             }
+            head = head.?.next;
         }
-        // std.debug.print("Current Path Length: {d} Cost: {d}\n", .{ cheapest_path.visited.count(), cheapest_path.cost });
         if (lowest_cost == std.math.maxInt(u64)) {
             @panic("All paths lead to dead end");
         }
         global_visited[grid.get_position_offset(cheapest_path.current).?] |= @intFromEnum(cheapest_path.direction);
-        cheapest_path.visited.put(grid.get_position_offset(cheapest_path.current).?, {}) catch unreachable;
+        cheapest_path.visited.set(grid.get_position_offset(cheapest_path.current).?);
 
         const current_cost = cheapest_path.cost;
         const current_head = cheapest_path.current;
         const current_direction = cheapest_path.direction;
-        var current_visited = cheapest_path.visited.clone() catch unreachable;
+        var current_visited = cheapest_path.visited.clone();
 
         // Step forward if possible
         const forward_position = cheapest_path.current.from_step(cheapest_path.direction);
@@ -101,7 +154,7 @@ pub fn part_one(reader: *Reader) u64 {
         var global_position_entry = &global_visited[position_offset];
         var moved_forward = false;
         const at_forward = grid.read(forward_position).?;
-        var position_visited_from_this_path = current_visited.get(position_offset) != null;
+        var position_visited_from_this_path = current_visited.get(position_offset);
         var position_visited_from_same_direction = (global_position_entry.* & @intFromEnum(cheapest_path.direction)) > 0;
         if (!position_visited_from_this_path and !position_visited_from_same_direction and at_forward != WALL) {
             if (at_forward == EMPTY) {
@@ -120,55 +173,59 @@ pub fn part_one(reader: *Reader) u64 {
         const at_left = grid.read(left_position).?;
         position_offset = grid.get_position_offset(left_position).?;
         global_position_entry = &global_visited[position_offset];
-        position_visited_from_this_path = current_visited.get(position_offset) != null;
+        position_visited_from_this_path = current_visited.get(position_offset);
         position_visited_from_same_direction = (global_position_entry.* & @intFromEnum(left_direction)) > 0;
         if (!position_visited_from_this_path and !position_visited_from_same_direction and at_left != WALL) {
+            if (at_left == END) {
+                cheapest_path.cost += 1001;
+                break;
+            }
+
             turned_left = true;
             var left_path = cheapest_path;
             if (moved_forward) {
                 // Create a new path for this branch
-                const new_path = MapPath{ .visited = current_visited.clone() catch unreachable, .cost = current_cost, .current = current_head, .direction = left_direction, .disqualified = false };
-                paths.append(new_path) catch unreachable;
-                left_path = &paths.items[paths.items.len - 1];
+                const new_path_node = paths.alloc() catch unreachable;
+                new_path_node.data = MapPath{ .visited = current_visited.clone(), .cost = current_cost, .current = current_head, .direction = left_direction };
+                paths.append(new_path_node);
+                left_path = &new_path_node.data;
             }
             left_path.direction = left_direction;
-            left_path.cost += 1000;
+            left_path.cost += 1001;
+            left_path.current = left_position;
         }
 
-        var free_current_visited_copy = true;
         var turned_right = false;
         const right_direction = current_direction.from_90_degree_clockwise_turn();
         const right_position = current_head.from_step(right_direction);
         const at_right = grid.read(right_position).?;
         position_offset = grid.get_position_offset(right_position).?;
         global_position_entry = &global_visited[position_offset];
-        position_visited_from_this_path = current_visited.get(position_offset) != null;
+        position_visited_from_this_path = current_visited.get(position_offset);
         position_visited_from_same_direction = (global_position_entry.* & @intFromEnum(right_direction)) > 0;
         if (!position_visited_from_this_path and !position_visited_from_same_direction and at_right != WALL) {
+            if (at_right == END) {
+                cheapest_path.cost += 1001;
+                break;
+            }
+
             turned_right = true;
             var right_path = cheapest_path;
             if (moved_forward or turned_left) {
-                free_current_visited_copy = false;
                 // Create a new path for this branch
-                const new_path = MapPath{ .visited = current_visited, .cost = current_cost, .current = current_head, .direction = right_direction, .disqualified = false };
-                paths.append(new_path) catch unreachable;
-                right_path = &paths.items[paths.items.len - 1];
+                const new_path_node = paths.alloc() catch unreachable;
+                new_path_node.data = MapPath{ .visited = current_visited, .cost = current_cost, .current = current_head, .direction = right_direction };
+                paths.append(new_path_node);
+                right_path = &new_path_node.data;
             }
             right_path.direction = right_direction;
-            right_path.cost += 1000;
+            right_path.cost += 1001;
+            right_path.current = right_position;
         }
 
         if (!moved_forward and !turned_left and !turned_right) {
-            cheapest_path.disqualified = true;
+            paths.remove(cheapest_path_node);
         }
-
-        if (free_current_visited_copy) {
-            current_visited.deinit();
-        }
-    }
-
-    for (paths.items) |*path| {
-        path.visited.deinit();
     }
 
     return cheapest_path.cost;
@@ -190,11 +247,12 @@ pub fn part_two(reader: *Reader) u64 {
         }
     }
 
-    var paths = std.ArrayList(MapPath).init(std.heap.page_allocator);
+    var paths = MapPaths(MapPath).init(std.heap.page_allocator, 12500) catch unreachable;
     defer paths.deinit();
 
-    const initial_path = MapPath{ .direction = Direction.east, .cost = 0, .current = start_position, .disqualified = false, .visited = VisitedMapPositions.init(std.heap.page_allocator) };
-    paths.append(initial_path) catch unreachable;
+    const initial_path_node = paths.alloc() catch unreachable;
+    initial_path_node.data = MapPath{ .direction = Direction.east, .cost = 0, .current = start_position, .visited = VisitedMapPositions.init() };
+    paths.append(initial_path_node);
 
     var global_visited = std.heap.page_allocator.alloc(VisitInfo, map_size) catch unreachable;
     defer std.heap.page_allocator.free(global_visited);
@@ -202,26 +260,33 @@ pub fn part_two(reader: *Reader) u64 {
         global_visited[i].costs = .{ null, null, null, null };
     }
 
-    var cheapest_path = &paths.items[0];
+    var unique_tiles = VisitedMapPositions.init();
+
+    var cheapest_path_node = initial_path_node;
+    var cheapest_path = &initial_path_node.data;
 
     var optimal_cost: ?u64 = null;
 
     while (true) {
         // Find the lowest cost path
         var lowest_cost: u64 = std.math.maxInt(u64);
-        for (paths.items) |*path| {
-            if (!path.disqualified and !path.complete and path.cost < lowest_cost) {
-                if (optimal_cost) |optimal| {
-                    if (path.cost > optimal) {
-                        path.disqualified = true;
-                        continue;
-                    }
+        var head = paths.first();
+        while (head) |node| {
+            if (optimal_cost) |optimal| {
+                if (node.data.cost > optimal) {
+                    const to_remove = head.?;
+                    head = head.?.next;
+                    paths.remove(to_remove);
+                    continue;
                 }
-                cheapest_path = path;
-                lowest_cost = path.cost;
             }
+            if (node.data.cost < lowest_cost) {
+                cheapest_path_node = node;
+                cheapest_path = &cheapest_path_node.data;
+                lowest_cost = cheapest_path.cost;
+            }
+            head = head.?.next;
         }
-        // std.debug.print("Current Path Length: {d} Cost: {d}\n", .{ cheapest_path.visited.count(), cheapest_path.cost });
         if (lowest_cost == std.math.maxInt(u64)) {
             if (optimal_cost == null) {
                 @panic("All paths lead to dead end");
@@ -230,12 +295,12 @@ pub fn part_two(reader: *Reader) u64 {
             }
         }
         global_visited[grid.get_position_offset(cheapest_path.current).?].updateIfCheaper(cheapest_path.cost, cheapest_path.direction);
-        cheapest_path.visited.put(grid.get_position_offset(cheapest_path.current).?, {}) catch unreachable;
+        cheapest_path.visited.set(grid.get_position_offset(cheapest_path.current).?);
 
         const current_cost = cheapest_path.cost;
         const current_head = cheapest_path.current;
         const current_direction = cheapest_path.direction;
-        var current_visited = cheapest_path.visited.clone() catch unreachable;
+        var current_visited = cheapest_path.visited.clone();
 
         // Step forward if possible
         const forward_position = cheapest_path.current.from_step(cheapest_path.direction);
@@ -244,7 +309,7 @@ pub fn part_two(reader: *Reader) u64 {
         var moved_forward = false;
         const forward_cost = current_cost + 1;
         const at_forward = grid.read(forward_position).?;
-        var position_visited_from_this_path = current_visited.get(position_offset) != null;
+        var position_visited_from_this_path = current_visited.get(position_offset);
         var position_visited_from_direction_at_cheaper_cost = global_visit_entry.hasCheaper(forward_cost, current_direction);
         if (!position_visited_from_this_path and !position_visited_from_direction_at_cheaper_cost and at_forward != WALL) {
             if (at_forward == EMPTY) {
@@ -252,14 +317,15 @@ pub fn part_two(reader: *Reader) u64 {
                 cheapest_path.current = forward_position;
                 moved_forward = true;
             } else if (at_forward == END) {
-                cheapest_path.cost = forward_cost;
-                cheapest_path.complete = true;
                 if (optimal_cost) |optimal| {
-                    cheapest_path.optimal = cheapest_path.cost == optimal;
+                    if (cheapest_path.cost == optimal) {
+                        unique_tiles.or_items(&cheapest_path.visited);
+                    }
                 } else {
                     optimal_cost = cheapest_path.cost;
-                    cheapest_path.optimal = true;
+                    unique_tiles.or_items(&cheapest_path.visited);
                 }
+                paths.remove(cheapest_path_node);
                 continue;
             }
         }
@@ -271,22 +337,22 @@ pub fn part_two(reader: *Reader) u64 {
         const left_cost = current_cost + 1000;
         position_offset = grid.get_position_offset(left_position).?;
         global_visit_entry = &global_visited[position_offset];
-        position_visited_from_this_path = current_visited.get(position_offset) != null;
+        position_visited_from_this_path = current_visited.get(position_offset);
         position_visited_from_direction_at_cheaper_cost = global_visit_entry.hasCheaper(left_cost, left_direction);
         if (!position_visited_from_this_path and !position_visited_from_direction_at_cheaper_cost and at_left != WALL) {
             turned_left = true;
             var left_path = cheapest_path;
             if (moved_forward) {
                 // Create a new path for this branch
-                const new_path = MapPath{ .visited = current_visited.clone() catch unreachable, .cost = current_cost, .current = current_head, .direction = left_direction, .disqualified = false };
-                paths.append(new_path) catch unreachable;
-                left_path = &paths.items[paths.items.len - 1];
+                const new_path_node = paths.alloc() catch unreachable;
+                new_path_node.data = MapPath{ .visited = current_visited.clone(), .cost = current_cost, .current = current_head, .direction = left_direction };
+                paths.append(new_path_node);
+                left_path = &new_path_node.data;
             }
             left_path.direction = left_direction;
             left_path.cost = left_cost;
         }
 
-        var free_current_visited_copy = true;
         var turned_right = false;
         const right_direction = current_direction.from_90_degree_clockwise_turn();
         const right_position = current_head.from_step(right_direction);
@@ -294,49 +360,29 @@ pub fn part_two(reader: *Reader) u64 {
         const at_right = grid.read(right_position).?;
         position_offset = grid.get_position_offset(right_position).?;
         global_visit_entry = &global_visited[position_offset];
-        position_visited_from_this_path = current_visited.get(position_offset) != null;
+        position_visited_from_this_path = current_visited.get(position_offset);
         position_visited_from_direction_at_cheaper_cost = global_visit_entry.hasCheaper(right_cost, right_direction);
         if (!position_visited_from_this_path and !position_visited_from_direction_at_cheaper_cost and at_right != WALL) {
             turned_right = true;
             var right_path = cheapest_path;
             if (moved_forward or turned_left) {
-                free_current_visited_copy = false;
                 // Create a new path for this branch
-                const new_path = MapPath{ .visited = current_visited, .cost = current_cost, .current = current_head, .direction = right_direction, .disqualified = false };
-                paths.append(new_path) catch unreachable;
-                right_path = &paths.items[paths.items.len - 1];
+                const new_path_node = paths.alloc() catch unreachable;
+                new_path_node.data = MapPath{ .visited = current_visited, .cost = current_cost, .current = current_head, .direction = right_direction };
+                paths.append(new_path_node);
+                right_path = &new_path_node.data;
             }
             right_path.direction = right_direction;
             right_path.cost = right_cost;
         }
 
         if (!moved_forward and !turned_left and !turned_right) {
-            cheapest_path.disqualified = true;
+            paths.remove(cheapest_path_node);
         }
-
-        if (free_current_visited_copy) {
-            current_visited.deinit();
-        }
-    }
-
-    var unique_tiles = std.AutoHashMap(u64, void).init(std.heap.page_allocator);
-    defer unique_tiles.deinit();
-    for (paths.items) |*path| {
-        if (!path.optimal) {
-            continue;
-        }
-        var path_iterator = path.visited.iterator();
-        while (path_iterator.next()) |entry| {
-            unique_tiles.put(entry.key_ptr.*, {}) catch unreachable;
-        }
-    }
-
-    for (paths.items) |*path| {
-        path.visited.deinit();
     }
 
     // Add 1 for the END tile
-    return unique_tiles.count() + 1;
+    return unique_tiles.count + 1;
 }
 
 pub fn do_benchmark() void {
@@ -375,5 +421,5 @@ test "part 2 small" {
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
+    try std.testing.expectEqual(565, result);
 }

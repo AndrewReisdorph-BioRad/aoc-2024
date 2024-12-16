@@ -42,5 +42,30 @@ pub fn Bitfield(length: comptime_int) type {
             self.count = 0;
             @memset(&self.data, 0);
         }
+
+        pub fn clone(self: *Self) Self {
+            return self.*;
+        }
+
+        fn count_bits(value: u8) u8 {
+            var bit_count: u8 = 0;
+            for (0..8) |bit| {
+                if ((value & (@as(u8, 1) << @intCast(bit))) > 0) {
+                    bit_count += 1;
+                }
+            }
+            return bit_count;
+        }
+
+        pub fn or_items(self: *Self, other: *Self) void {
+            for (0..byte_length) |idx| {
+                if (other.data[idx] == 0) {
+                    continue;
+                }
+                // Count the bits that have changed
+                self.count += Self.count_bits(~self.data[idx] & other.data[idx]);
+                self.data[idx] |= other.data[idx];
+            }
+        }
     };
 }
