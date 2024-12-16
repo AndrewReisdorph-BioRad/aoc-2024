@@ -36,23 +36,23 @@ pub fn do_benchmark() void {
 test "part 1 small" {
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_one(&reader);
-    try std.testing.expectEqual(result, 1);
+    try std.testing.expectEqual(1, result);
 }
 
 test "part 1 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
-    try std.testing.expectEqual(result, 1);
+    try std.testing.expectEqual(1, result);
 }
 
 test "part 2 small" {
     var reader = Reader.from_comptime_path(small_data_path);
     const result = part_two(&reader);
-    try std.testing.expectEqual(result, 1);
+    try std.testing.expectEqual(1, result);
 }
 
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    try std.testing.expectEqual(result, 1);
+    try std.testing.expectEqual(1, result);
 }

@@ -32,7 +32,7 @@ pub fn Bitfield(length: comptime_int) type {
             return self.data[byte_offset];
         }
 
-        pub fn get(self: *Self, position: u64) bool {
+        pub fn get(self: *const Self, position: u64) bool {
             const byte_offset = @divFloor(position, 8);
             const bit_offset = @mod(position, 8);
             return (self.data[byte_offset] & @as(u8, 1) << @intCast(bit_offset)) > 0;

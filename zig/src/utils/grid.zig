@@ -81,6 +81,7 @@ pub const PositionDelta = struct {
 };
 
 pub const Direction = enum(u8) {
+    const Self = @This();
     north = 1,
     northeast = 2,
     east = 4,
@@ -89,7 +90,7 @@ pub const Direction = enum(u8) {
     southwest = 32,
     west = 64,
     northwest = 128,
-    pub fn turn_90_degrees(self: *@This()) void {
+    pub fn turn_90_degrees_clockwise(self: *Self) void {
         switch (self.*) {
             .north => self.* = Direction.east,
             .east => self.* = Direction.south,
@@ -100,6 +101,28 @@ pub const Direction = enum(u8) {
             .southeast => self.* = Direction.southwest,
             .southwest => self.* = Direction.northwest,
         }
+    }
+    pub fn turn_90_degrees_counter_clockwise(self: *Self) void {
+        switch (self.*) {
+            .north => self.* = Direction.west,
+            .east => self.* = Direction.north,
+            .south => self.* = Direction.east,
+            .west => self.* = Direction.south,
+            .northeast => self.* = Direction.northeast,
+            .northwest => self.* = Direction.southeast,
+            .southeast => self.* = Direction.northwest,
+            .southwest => self.* = Direction.southwest,
+        }
+    }
+    pub fn from_90_degree_clockwise_turn(self: *const Self) Self {
+        var copy = self.*;
+        copy.turn_90_degrees_clockwise();
+        return copy;
+    }
+    pub fn from_90_degree_counter_clockwise_turn(self: *const Self) Self {
+        var copy = self.*;
+        copy.turn_90_degrees_counter_clockwise();
+        return copy;
     }
 };
 
