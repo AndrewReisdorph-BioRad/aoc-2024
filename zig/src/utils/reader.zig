@@ -21,6 +21,9 @@ pub const Reader = struct {
     }
 
     pub fn search_next_int(self: *Self, T: type) ?T {
+        if (self.ptr >= self.data.len) {
+            return null;
+        }
         var value: T = 0;
 
         // Skip any non-digit characters
@@ -39,7 +42,17 @@ pub const Reader = struct {
             }
         }
 
-        return if (negative) -value else value;
+        switch (@typeInfo(T)) {
+            .Int => |info| {
+                if (info.signedness == std.builtin.Signedness.signed) {
+                    return if (negative) -value else value;
+                }
+                return value;
+            },
+            else => {
+                @panic("not called with int");
+            },
+        }
     }
 
     pub fn next_int(self: *Self, T: type, ignore_whitespace: bool) ?T {
