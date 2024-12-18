@@ -9,6 +9,15 @@ pub const Position = struct {
         return new_position;
     }
 
+    pub fn is_contained(self: *const Self, width: u64, height: u64) bool {
+        if (self.x >= 0 and self.x < width) {
+            if (self.y >= 0 and self.y < height) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub fn move_direction(self: *Self, direction: Direction) void {
         switch (direction) {
             .north => self.north(),
