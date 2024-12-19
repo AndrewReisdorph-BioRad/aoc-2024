@@ -4,7 +4,6 @@ const benchmark = @import("utils/benchmark.zig");
 
 const day = 0;
 const data_path = std.fmt.comptimePrint("../data/day{d}.txt", .{day});
-const small_data_path = std.fmt.comptimePrint("../data/day{d}_small.txt", .{day});
 
 pub fn part_one(reader: *Reader) u64 {
     _ = reader;
@@ -34,7 +33,10 @@ pub fn do_benchmark() void {
 }
 
 test "part 1 small" {
-    var reader = Reader.from_comptime_path(small_data_path);
+    var reader = Reader.init(
+        \\sample data
+        \\goes here
+    );
     const result = part_one(&reader);
     try std.testing.expectEqual(1, result);
 }
@@ -46,7 +48,10 @@ test "part 1 big" {
 }
 
 test "part 2 small" {
-    var reader = Reader.from_comptime_path(small_data_path);
+    var reader = Reader.init(
+        \\sample data
+        \\goes here
+    );
     const result = part_two(&reader);
     try std.testing.expectEqual(1, result);
 }

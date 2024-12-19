@@ -176,6 +176,9 @@ pub const Reader = struct {
 
     pub fn seek(self: *Self, from: SeekFrom, distance: i32) void {
         switch (from) {
+            .Start => {
+                self.ptr = @min(@as(u32, @intCast(@max(0, distance))), self.data.len - 1);
+            },
             .Current => {
                 const new_ptr = @as(i64, self.ptr) + @as(i64, distance);
                 self.ptr = @min(@max(0, @as(u32, @intCast(new_ptr))), @as(u32, @intCast(self.data.len - 1)));
