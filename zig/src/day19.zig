@@ -34,15 +34,10 @@ const Node = struct {
     }
 };
 
-pub fn part_one(reader: *Reader) u64 {
-    // var buffer: [32000]u8 = undefined;
-    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    // const allocator = fba.allocator();
-    const allocator = std.heap.page_allocator;
-
-    // Create tree
-    var root = Node{};
-    var current_node = &root;
+fn create_graph(reader: *Reader, allocator: std.mem.Allocator) *Node {
+    const root = allocator.create(Node) catch @panic("OOM");
+    root.* = Node{};
+    var current_node = root;
 
     while (reader.next_char()) |next_char| {
         if (next_char == '\n') {
@@ -50,7 +45,7 @@ pub fn part_one(reader: *Reader) u64 {
             break;
         } else if (next_char == ',') {
             current_node.terminal = true;
-            current_node = &root;
+            current_node = root;
             _ = reader.next_char();
         } else {
             const color = Color.from_char(next_char);
@@ -65,23 +60,27 @@ pub fn part_one(reader: *Reader) u64 {
         }
     }
 
+    return root;
+}
+
+pub fn part_one(reader: *Reader) u64 {
+    var buffer: [45000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
+    // Create tree
+    var root = create_graph(reader, allocator);
+
     // Eat the next blank line
     _ = reader.next_char();
 
     var valid_patterns: u64 = 0;
-    current_node = &root;
-
-    // const NodeWithOffset = struct { node: *Node, offset: u64 };
-
-    // var path_stack = Stack(NodeWithOffset, 80).init();
 
     var a_paths = std.ArrayList(*Node).init(allocator);
     var b_paths = std.ArrayList(*Node).init(allocator);
 
     var current_paths = &a_paths;
     var new_paths = &b_paths;
-
-    var current_path_length: u32 = 0;
 
     while (true) {
         const next_char = reader.next_char();
@@ -95,22 +94,15 @@ pub fn part_one(reader: *Reader) u64 {
                     break;
                 }
             }
-            if (got_terminal_path) {
-                std.debug.print("Pattern is possible!\n======================\n", .{});
-            } else {
-                std.debug.print("Pattern not possible\n======================\n", .{});
-            }
             if (next_char == null) {
                 break;
             }
-            current_path_length = 0;
             current_paths.clearRetainingCapacity();
             new_paths.clearRetainingCapacity();
             continue;
         }
 
         const color = Color.from_char(next_char.?);
-        std.debug.print("{c} ", .{next_char.?});
         var found_terminal_node = false;
         // Step forward from all current candidate paths
         for (current_paths.items) |path| {
@@ -118,15 +110,13 @@ pub fn part_one(reader: *Reader) u64 {
                 found_terminal_node = true;
             }
             if (path.get(color)) |node| {
-                std.debug.print(" found path ", .{});
                 new_paths.append(node) catch unreachable;
             }
         }
         // If all current path's cannot be extended, we can start over from the root
         // *only* if there is at least one terminal node in current_paths
-        if (found_terminal_node or current_path_length == 0) {
+        if (found_terminal_node or current_paths.items.len == 0) {
             if (root.get(color)) |node| {
-                std.debug.print(" Found new path from root. ", .{});
                 new_paths.append(node) catch unreachable;
             }
         }
@@ -135,12 +125,9 @@ pub fn part_one(reader: *Reader) u64 {
             if (reader.seek_to_next_substr("\n") == null) {
                 break;
             }
-        } else {
-            current_path_length += 1;
         }
 
-        std.debug.print("\n", .{});
-
+        // swap lists
         const temp = current_paths;
         current_paths = new_paths;
         new_paths = temp;
@@ -150,102 +137,68 @@ pub fn part_one(reader: *Reader) u64 {
     return valid_patterns;
 }
 
-pub fn part_one(reader: *Reader) u64 {
-    // var buffer: [32000]u8 = undefined;
-    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    // const allocator = fba.allocator();
-    const allocator = std.heap.page_allocator;
+pub fn part_two(reader: *Reader) u64 {
+    var buffer: [45000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
 
     // Create tree
-    var root = Node{};
-    var current_node = &root;
-
-    while (reader.next_char()) |next_char| {
-        if (next_char == '\n') {
-            current_node.terminal = true;
-            break;
-        } else if (next_char == ',') {
-            current_node.terminal = true;
-            current_node = &root;
-            _ = reader.next_char();
-        } else {
-            const color = Color.from_char(next_char);
-            if (current_node.get(color)) |child_node| {
-                current_node = child_node;
-            } else {
-                const child_node = allocator.create(Node) catch @panic("OOM");
-                child_node.* = Node{ .parent = current_node };
-                current_node.set(color, child_node);
-                current_node = child_node;
-            }
-        }
-    }
+    var root = create_graph(reader, allocator);
 
     // Eat the next blank line
     _ = reader.next_char();
 
-    var valid_patterns: u64 = 0;
-    current_node = &root;
+    const PathNode = struct {
+        inner: *Node,
+        multiplicity: u64 = 1,
+    };
 
-    // const NodeWithOffset = struct { node: *Node, offset: u64 };
-
-    // var path_stack = Stack(NodeWithOffset, 80).init();
-
-    var a_paths = std.ArrayList(*Node).init(allocator);
-    var b_paths = std.ArrayList(*Node).init(allocator);
+    var a_paths = std.ArrayList(PathNode).init(allocator);
+    var b_paths = std.ArrayList(PathNode).init(allocator);
 
     var current_paths = &a_paths;
     var new_paths = &b_paths;
 
-    var current_path_length: u32 = 0;
-    var combinations_for_this_pattern: u64 = 0;
+    current_paths.append(PathNode{ .inner = root }) catch unreachable;
+
     var total_combinations: u64 = 0;
     while (true) {
         const next_char = reader.next_char();
         if (next_char == '\n' or next_char == null) {
             // If any current paths are a terminal node than the pattern is possible
             var got_terminal_path = false;
+            var combinations_for_this_pattern: u64 = 0;
             for (current_paths.items) |path| {
-                if (path.terminal) {
-                    valid_patterns += 1;
+                if (path.inner.terminal) {
+                    total_combinations += path.multiplicity;
+                    combinations_for_this_pattern += path.multiplicity;
                     got_terminal_path = true;
-                    break;
                 }
-            }
-            if (got_terminal_path) {
-                total_combinations += combinations_for_this_pattern;
-                std.debug.print("Pattern is possible!\n======================\n", .{});
-            } else {
-                std.debug.print("Pattern not possible\n======================\n", .{});
             }
             if (next_char == null) {
                 break;
             }
-            current_path_length = 0;
             current_paths.clearRetainingCapacity();
+            current_paths.append(PathNode{ .inner = root }) catch unreachable;
             new_paths.clearRetainingCapacity();
             continue;
         }
 
         const color = Color.from_char(next_char.?);
-        std.debug.print("{c} ", .{next_char.?});
-        var found_terminal_node = false;
-        // Step forward from all current candidate paths
+        // Step forward from all current candidate paths.
+        var num_root_extensions: u64 = 0;
         for (current_paths.items) |path| {
-            if (path.terminal) {
-                found_terminal_node = true;
+            if (path.inner.get(color)) |node| {
+                new_paths.append(PathNode{ .inner = node, .multiplicity = path.multiplicity }) catch unreachable;
             }
-            if (path.get(color)) |node| {
-                std.debug.print(" found path ", .{});
-                new_paths.append(node) catch unreachable;
+            if (path.inner.terminal) {
+                num_root_extensions += path.multiplicity;
             }
         }
-        // If all current path's cannot be extended, we can start over from the root
-        // *only* if there is at least one terminal node in current_paths
-        if (found_terminal_node or current_path_length == 0) {
+
+        if (num_root_extensions > 0) {
             if (root.get(color)) |node| {
-                std.debug.print(" Found new path from root. ", .{});
-                new_paths.append(node) catch unreachable;
+                new_paths.append(PathNode{ .inner = node, .multiplicity = num_root_extensions }) catch unreachable;
             }
         }
 
@@ -253,12 +206,9 @@ pub fn part_one(reader: *Reader) u64 {
             if (reader.seek_to_next_substr("\n") == null) {
                 break;
             }
-        } else {
-            current_path_length += 1;
         }
 
-        std.debug.print("\n", .{});
-
+        // swap lists
         const temp = current_paths;
         current_paths = new_paths;
         new_paths = temp;
@@ -296,12 +246,6 @@ test "part 1 small" {
         \\brgr
         \\bbrgwb
     );
-    // var reader = Reader.init(
-    //     \\r, w, wr, b, g, bwu, rb, gb, br, rb, ru
-    //     \\
-    //     \\bwru
-    // );
-    std.debug.print("\n", .{});
     const result = part_one(&reader);
     try std.testing.expectEqual(6, result);
 }
@@ -309,7 +253,7 @@ test "part 1 small" {
 test "part 1 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
-    try std.testing.expectEqual(1, result);
+    try std.testing.expectEqual(350, result);
 }
 
 test "part 2 small" {
@@ -318,82 +262,20 @@ test "part 2 small" {
         \\
         \\brwrr
         \\bggr
-        // \\gbbr
-        // \\rrbgbr
-        // \\ubwu
-        // \\bwurrg
-        // \\brgr
-        // \\bbrgwb
+        \\gbbr
+        \\rrbgbr
+        \\ubwu
+        \\bwurrg
+        \\brgr
+        \\bbrgwb
     );
-    std.debug.print("\n", .{});
 
     const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
+    try std.testing.expectEqual(16, result);
 }
 
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
+    try std.testing.expectEqual(769668867512623, result);
 }
-
-// while (true) {
-//     const next_char = reader.next_char();
-
-//     var invalid = false;
-
-//     // Check if at the end of the pattern
-//     if (next_char == null or next_char == '\n') {
-//         if (current_node.terminal) {
-//             valid_patterns += 1;
-//             path_stack.clear();
-//             current_node = &root;
-//             std.debug.print(" Pattern is valid!\n", .{});
-//             std.debug.print("------------------\n", .{});
-//             if (next_char == null) {
-//                 break;
-//             }
-//             continue;
-//         } else {
-//             invalid = true;
-//         }
-//     }
-
-//     if (!invalid) {
-//         const color = Color.from_char(next_char.?);
-//         std.debug.print("{any}  ", .{color});
-
-//         if (current_node.get(color) == null) {
-//             if (current_node.terminal) {
-//                 std.debug.print("Terminal node has no path to next color. Resetting to root. ", .{});
-//                 current_node = &root;
-//             }
-//         }
-
-//         if (current_node.get(color)) |node| {
-//             current_node = node;
-//             std.debug.print("Color is in current path. ", .{});
-//             if (node.terminal) {
-//                 path_stack.push(NodeWithOffset{ .node = node, .offset = reader.tell() }) catch @panic("Stack OOM");
-//             }
-//         } else {
-//             invalid = true;
-//         }
-//     }
-
-//     if (invalid) {
-//         if (path_stack.pop()) |path| {
-//             std.debug.print("Current path invalid Seeking back: {d}", .{(reader.tell() - path.offset) - 1});
-//             reader.seek(SeekFrom.Start, @as(i32, @intCast(path.offset)));
-//             current_node = &root;
-//         } else {
-//             // Skip to the next pattern
-//             std.debug.print(" Pattern not possible!\n", .{});
-//             std.debug.print("------------------\n", .{});
-//             if (reader.seek_to_next_substr("\n") == null) {
-//                 break;
-//             }
-//             _ = reader.next_char();
-//             current_node = &root;
-//         }
-//     }
