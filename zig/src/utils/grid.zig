@@ -148,7 +148,7 @@ pub const Grid = struct {
             ptr += 1;
         }
         const width = ptr;
-        const height: u64 = @as(u64, @intCast(data.len)) / (width + 1);
+        const height: u64 = @as(u64, @intCast(data.len + 1)) / (width + 1);
 
         return Self{
             .data = data,
