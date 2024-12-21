@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Position = struct {
     x: i64,
     y: i64,
@@ -74,6 +76,12 @@ pub const Position = struct {
     pub fn apply_delta(self: *Self, d: PositionDelta) void {
         self.x += d.x;
         self.y += d.y;
+    }
+
+    pub fn step_distance(self: *const Self, other: Position) u64 {
+        const x_dist = self.x - other.x;
+        const y_dist = self.y - other.y;
+        return @abs(x_dist) + @abs(y_dist);
     }
 };
 
