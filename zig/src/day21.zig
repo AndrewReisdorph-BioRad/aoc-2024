@@ -31,8 +31,8 @@ const DirectionalKeypad = struct {
     const RIGHT_IDX = 3;
     const ACTIVATE_IDX = 4;
     current_key_idx: usize = ACTIVATE_IDX,
-    key_presses: u32 = 0,
-    primary: bool = false,
+    id: usize = 0,
+    key_presses: u64 = 0,
     keys: [5]Key = .{ Key{ .code = UP, .right = ACTIVATE_IDX, .down = DOWN_IDX }, Key{ .code = DOWN, .left = LEFT_IDX, .right = RIGHT_IDX, .up = UP_IDX }, Key{ .code = LEFT, .right = DOWN_IDX }, Key{ .code = RIGHT, .left = DOWN_IDX, .up = ACTIVATE_IDX }, Key{ .code = ACTIVATE, .left = UP_IDX, .down = RIGHT_IDX } },
     pub fn right(self: *Self) void {
         self.current_key_idx = self.keys[self.current_key_idx].right.?;
@@ -46,19 +46,30 @@ const DirectionalKeypad = struct {
     pub fn down(self: *Self) void {
         self.current_key_idx = self.keys[self.current_key_idx].down.?;
     }
-    pub fn activate(self: *Self, universe: *Universe) void {
+    pub fn increment_push(self: *Self) void {
         self.key_presses += 1;
-        if (self.primary) {
-            if (self.keys[self.current_key_idx].code == 'A') {
-                universe.secondary_dpad.activate(universe);
+        if (self.id == 0 and (self.key_presses % 10000000 == 0)) {
+            std.debug.print("Key Presses: {d}\n", .{self.key_presses});
+        }
+    }
+    pub fn push(self: *Self, ship: anytype) void {
+        const current = self.current_key();
+        //std.debug.print("DPad[{d}] pushing key {c}\n", .{ self.id, current });
+
+        self.increment_push();
+        if (self.id < ship.dpads.len - 1) {
+            if (current == 'A') {
+                ship.dpads[self.id + 1].push(ship);
             } else {
-                universe.secondary_dpad.move_direction(self.keys[self.current_key_idx].code);
+                ship.dpads[self.id + 1].move_direction(current);
+                ship.print();
             }
         } else {
-            if (self.keys[self.current_key_idx].code == 'A') {
-                universe.numpad.activate();
+            if (current == 'A') {
+                ship.numpad.push();
             } else {
-                universe.numpad.move_direction(self.keys[self.current_key_idx].code);
+                ship.numpad.move_direction(current);
+                ship.print();
             }
         }
     }
@@ -106,12 +117,28 @@ const DirectionalKeypad = struct {
             '<' => self.left(),
             else => unreachable,
         }
-        self.key_presses += 1;
+        self.increment_push();
+        //std.debug.print("DPad[{d}] moving {c}\n", .{ self.id, direction });
     }
-    pub fn move_to_key(self: *Self, key: u8) void {
+    pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype) void {
+        //std.debug.print("DPad[{d}] moving from {c} to key: {c}\n", .{ self.id, self.current_key(), key });
         while (self.current_key() != key) {
-            const keypad_b_step = self.calc_step_toward_key(key);
-            self.move_direction(keypad_b_step);
+            const step = self.calc_step_toward_key(key);
+            if (self.id == 0) {
+                self.move_direction(step);
+                ship.print();
+            } else {
+                //std.debug.print("DPad[{d}] needs DPad[{d}] to move to key: {c}\n", .{ self.id, self.id - 1, step });
+                ship.dpads[self.id - 1].move_to_and_activate_key(step, ship);
+                // ship.dpads[self.id - 1].push(ship);
+            }
+        }
+        //std.debug.print("DPad[{d}] is on target key: {c} \n", .{ self.id, self.current_key() });
+
+        if (self.id == 0) {
+            self.push(ship);
+        } else {
+            ship.dpads[self.id - 1].move_to_and_activate_key('A', ship);
         }
     }
     pub fn num_key_presses_to_move_to_activate_key(self: *Self) u8 {
@@ -126,6 +153,28 @@ const DirectionalKeypad = struct {
     }
     pub fn reset(self: *Self) void {
         self.current_key_idx = ACTIVATE_IDX;
+    }
+    pub fn print(self: *Self) void {
+        const current = self.current_key();
+        //std.debug.print("   _ _ \n", .{});
+        if (current == '^') {
+            //std.debug.print(" _|#|A|\n", .{});
+        } else if (current == 'A') {
+            //std.debug.print(" _|^|#|\n", .{});
+        } else {
+            //std.debug.print(" _|^|A|\n", .{});
+        }
+
+        if (current == '<') {
+            //std.debug.print("|#|v|>|\n", .{});
+        } else if (current == 'v') {
+            //std.debug.print("|<|#|>|\n", .{});
+        } else if (current == '>') {
+            //std.debug.print("|<|v|#|\n", .{});
+        } else {
+            //std.debug.print("|<|v|>|\n", .{});
+        }
+        //std.debug.print(" - - -\n", .{});
     }
 };
 
@@ -168,7 +217,7 @@ const NumericKeypad = struct {
             else => unreachable,
         }
         self.last_direction = direction;
-        // std.debug.print("NumPad is on: {c}\n", .{self.current_key()});
+        std.debug.print("NumPad moved to: {c}\n", .{self.current_key()});
     }
     pub fn current_key(self: *Self) u8 {
         return self.keys[self.current_key_idx].code;
@@ -368,7 +417,7 @@ const NumericKeypad = struct {
             if (maybe_same_direction_key) |same_direction_key| {
                 const same_direction_key_dist = Self.key_dist(key, self.keys[same_direction_key].code);
                 if (same_direction_key_dist < current_distance_to_key) {
-                    std.debug.print("Last direction {c} can be used\n", .{last});
+                    //std.debug.print("Last direction {c} can be used\n", .{last});
                     return last;
                 }
             }
@@ -428,46 +477,78 @@ const NumericKeypad = struct {
     pub fn reset(self: *Self) void {
         self.current_key_idx = ACTIVATE_IDX;
     }
-    pub fn activate(self: *Self) void {
-        _ = self;
-        // std.debug.print("=================\nNumpad Entered: {c}\n=================\n", .{self.current_key()});
+    pub fn push(self: *Self) void {
+        std.debug.print("=================\nNumpad Entered: {c}\n=================\n", .{self.current_key()});
     }
-};
-
-const Universe = struct {
-    const Self = @This();
-    primary_dpad: DirectionalKeypad = DirectionalKeypad{ .primary = true },
-    secondary_dpad: DirectionalKeypad = DirectionalKeypad{},
-    numpad: NumericKeypad = NumericKeypad{},
-    pub fn follow_numpad_path(self: *Self, path: []const u8) void {
-        // std.debug.print("Following numpad path: {s}\n", .{path});
-        // std.debug.print("Starting on: {c}\n", .{self.numpad.current_key()});
-
-        // Position the numeric keypad cursor over next_digit
-        for (path) |step| {
-            // Move Secondary D-Pad cursor to the button of the direction we want to move the cursor on the num pad
-            while (self.secondary_dpad.current_key() != step) {
-                const keypad_a_step = self.secondary_dpad.calc_step_toward_key(step);
-                self.primary_dpad.move_to_key(keypad_a_step);
-                self.primary_dpad.activate(self);
+    pub fn print(self: *Self) void {
+        const current = self.current_key();
+        //std.debug.print(" _ _ _\n", .{});
+        for ("|7|8|9|\n") |c| {
+            if (c == current) {
+                //std.debug.print("#", .{});
+            } else {
+                //std.debug.print("{c}", .{c});
             }
-            // Move Primary cursor to 'A' key and push it
-            self.primary_dpad.move_to_key(ACTIVATE);
-            self.primary_dpad.activate(self);
         }
-
-        // Move Secondary cursor to 'A'
-        while (self.secondary_dpad.current_key() != 'A') {
-            const keypad_a_step = self.secondary_dpad.calc_step_toward_key('A');
-            self.primary_dpad.move_to_key(keypad_a_step);
-            self.primary_dpad.activate(self);
+        //std.debug.print(" _ _ _\n", .{});
+        for ("|4|5|6|\n") |c| {
+            if (c == current) {
+                //std.debug.print("#", .{});
+            } else {
+                //std.debug.print("{c}", .{c});
+            }
         }
-
-        // Move Primary cursor to 'A' key and push it to activate Secondary to activate the numpad push
-        self.primary_dpad.move_to_key(ACTIVATE);
-        self.primary_dpad.activate(self);
+        //std.debug.print(" _ _ _\n", .{});
+        for ("|1|2|3|\n") |c| {
+            if (c == current) {
+                //std.debug.print("#", .{});
+            } else {
+                //std.debug.print("{c}", .{c});
+            }
+        }
+        //std.debug.print(" _ _ _\n", .{});
+        for ("  |0|A|\n") |c| {
+            if (c == current) {
+                //std.debug.print("#", .{});
+            } else {
+                //std.debug.print("{c}", .{c});
+            }
+        }
+        //std.debug.print("   _ _\n", .{});
     }
 };
+
+fn SpaceShip(num_dpads: comptime_int) type {
+    return struct {
+        const Self = @This();
+        dpads: [num_dpads]DirectionalKeypad = undefined,
+        numpad: NumericKeypad = NumericKeypad{},
+        pub fn init() Self {
+            var new = Self{};
+            for (0..num_dpads) |i| {
+                new.dpads[i] = DirectionalKeypad{ .id = i };
+            }
+            return new;
+        }
+        pub fn print(self: *Self) void {
+            for (0..num_dpads) |i| {
+                //std.debug.print("DPad: {d}\n", .{i});
+                self.dpads[i].print();
+            }
+            self.numpad.print();
+        }
+        pub fn follow_numpad_path(self: *Self, path: []const u8) void {
+            std.debug.print("Following numpad path: {s}\n", .{path});
+            std.debug.print("Starting on: {c}\n", .{self.numpad.current_key()});
+            for (path) |step| {
+                std.debug.print("Aligning numpad cursor\n", .{});
+                self.dpads[num_dpads - 1].move_to_and_activate_key(step, self);
+            }
+
+            self.dpads[num_dpads - 1].move_to_and_activate_key('A', self);
+        }
+    };
+}
 
 pub fn get_codes(reader: *Reader) [5]Code {
     var codes = std.mem.zeroes([5]Code);
@@ -487,39 +568,44 @@ pub fn get_codes(reader: *Reader) [5]Code {
 
 // Assumptions:
 // 1. It is always most efficient to move in straight lines i.e. no stair steps
-pub fn get_code_button_presses(code: Code) u64 {
+pub fn get_code_button_presses(code: Code, num_dpads: comptime_int) u64 {
+    std.debug.print("Handling code: {s}\n", .{code});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    var new_universes = std.ArrayList(Universe).init(allocator);
-    defer new_universes.deinit();
-    var universes = std.ArrayList(Universe).init(allocator);
-    defer universes.deinit();
+    const Ship = SpaceShip(num_dpads);
 
-    universes.append(Universe{}) catch unreachable;
+    var new_ships = std.ArrayList(Ship).init(allocator);
+    defer new_ships.deinit();
+    var ships = std.ArrayList(Ship).init(allocator);
+    defer ships.deinit();
+
+    ships.append(Ship.init()) catch unreachable;
 
     var last_key: u8 = 'A';
     for (code) |key| {
         const paths = NumericKeypad.calc_paths_to_key(last_key, key);
-        for (universes.items) |*universe| {
-            var copy = universe.*;
-            universe.follow_numpad_path(paths.paths[0][0..paths.length]);
+        for (ships.items) |*ship| {
+            var copy = ship.*;
+            //std.debug.print("[1/{}] ", .{paths.num_paths});
+            ship.follow_numpad_path(paths.paths[0][0..paths.length]);
             if (paths.num_paths > 1) {
+                //std.debug.print("[2/{}] ", .{paths.num_paths});
                 copy.follow_numpad_path(paths.paths[1][0..paths.length]);
-                new_universes.append(copy) catch unreachable;
+                new_ships.append(copy) catch unreachable;
             }
         }
 
-        universes.appendSlice(new_universes.items) catch unreachable;
-        new_universes.clearRetainingCapacity();
+        ships.appendSlice(new_ships.items) catch unreachable;
+        new_ships.clearRetainingCapacity();
 
         last_key = key;
     }
 
     var min_presses: u64 = std.math.maxInt(u64);
-    for (universes.items) |universe| {
-        min_presses = @min(min_presses, universe.primary_dpad.key_presses);
+    for (ships.items) |ship| {
+        min_presses = @min(min_presses, ship.dpads[0].key_presses);
     }
 
     return min_presses;
@@ -529,8 +615,10 @@ pub fn part_one(reader: *Reader) u64 {
     var sum: u64 = 0;
     const codes = get_codes(reader);
     for (codes) |code| {
-        const button_presses = get_code_button_presses(code);
+        const button_presses = get_code_button_presses(code, 2);
         const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
+        std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
+
         sum += button_presses * numeric_value;
     }
 
@@ -538,9 +626,17 @@ pub fn part_one(reader: *Reader) u64 {
 }
 
 pub fn part_two(reader: *Reader) u64 {
-    _ = reader;
+    var sum: u64 = 0;
+    const codes = get_codes(reader);
+    for (codes) |code| {
+        const button_presses = get_code_button_presses(code, 25);
+        const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
+        std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
-    return 0;
+        sum += button_presses * numeric_value;
+    }
+
+    return sum;
 }
 
 pub fn do_benchmark() void {
@@ -571,6 +667,16 @@ test "part 1 small" {
     try std.testing.expectEqual(126384, result);
 }
 
+// ========================================
+// Benchmarking: Day 21 Part 1
+// Warming up... 5 iterations --> 622 µs
+// Measuring... 10000 iterations --> 394.356 ms
+//    Min: 34 µs
+//    Max: 141 µs
+//   Mean: 39.3686 µs
+// Median: 39 µs
+// StdDev: 3.9998917535351386 µs
+// ========================================
 test "part 1 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_one(&reader);
@@ -579,15 +685,23 @@ test "part 1 big" {
 
 test "part 2 small" {
     var reader = Reader.init(
-        \\sample data
-        \\goes here
+        \\029A
+        \\980A
+        \\179A
+        \\456A
+        \\379A
+        \\
     );
     const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
+    // 2_050_000_000
+    try std.testing.expectEqual(154_115_708_116_294, result);
 }
 
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
+    // 197112 is too low
+    // 6858192 is too low
+    // 16174438 is too low
     try std.testing.expectEqual(1, result);
 }
