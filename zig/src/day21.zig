@@ -12,9 +12,47 @@ const LEFT = '<';
 const RIGHT = '>';
 const ACTIVATE = 'A';
 
-const CACHE_ENABLED = false;
+const CACHE_ENABLED = true;
 
-const StepLookup = std.AutoHashMap(u128, u64);
+const StepLookup = struct {
+    const Self = @This();
+    map: std.AutoHashMap(u128, u64),
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{ .map = std.AutoHashMap(u128, u64).init(allocator) };
+    }
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+    pub fn calc_key(dpads: []DirectionalKeypad, step: u8) u128 {
+        var key: u128 = 0;
+        for (dpads) |dpad| {
+            const next_key_bits: u128 = switch (dpad.current_key()) {
+                '^' => 1,
+                '<' => 2,
+                'v' => 3,
+                '>' => 4,
+                'A' => 5,
+                else => unreachable,
+            };
+            key = (key << 3) | next_key_bits;
+        }
+        key = (key << 3) | @as(u128, switch (step) {
+            '^' => 1,
+            '<' => 2,
+            'v' => 3,
+            '>' => 4,
+            'A' => 5,
+            else => unreachable,
+        });
+        return key;
+    }
+    pub fn get(self: *Self, key: u128) ?u64 {
+        return self.map.get(key);
+    }
+    pub fn put(self: *Self, key: u128, value: u64) void {
+        self.map.put(key, value) catch unreachable;
+    }
+};
 
 const Code = [4]u8;
 
@@ -77,6 +115,142 @@ const DirectionalKeypad = struct {
             }
         }
     }
+    pub fn get_key_row(key: u8) u8 {
+        return @as(u8, (key != '^' and key != 'A'));
+    }
+    pub fn get_key_column(key: u8) u8 {
+        return switch (key) {
+            '<' => 0,
+            '^' | 'v' => 1,
+            else => 2,
+        };
+    }
+    pub fn calc_paths_to_key(self: *Self, key: u8) KeypadPaths {
+        // Four options exists:
+        // 0. Key is the current key
+        // 1. Key is on same row/column and we only need to move in one direction
+        // 2. Move vertically and then horizontally
+        // 3. Move horizontally and then vertically
+        var paths = KeypadPaths{};
+        const current = self.current_key();
+
+        if (key == current) {
+            return paths;
+        }
+
+        const current_row = Self.get_key_row(current);
+        const current_col = Self.get_key_column(current);
+
+        const key_row = Self.get_key_row(key);
+        const key_col = Self.get_key_column(key);
+
+        const horizontal_direction = if (current_col > key_col) LEFT else RIGHT;
+        const vertical_direction = if (current_row > key_row) UP else DOWN;
+        const horizontal_distance = @as(u8, @abs(@as(i8, current_col) - @as(i8, key_col)));
+        const vertical_distance = @as(u8, @abs(@as(i8, current_row) - @as(i8, key_row)));
+
+        paths.length = horizontal_distance + vertical_distance;
+
+        if (current_row == key_row) {
+            paths.num_paths = 1;
+            for (0..horizontal_distance) |i| {
+                paths.paths[0][i] = horizontal_direction;
+            }
+        } else if (current_col == key_col) {
+            paths.num_paths = 1;
+            for (0..vertical_distance) |i| {
+                paths.paths[0][i] = vertical_direction;
+            }
+        } else {
+            paths.num_paths = 2;
+            switch (current) {
+                '^' => {
+                    switch (key) {
+                        '<' => {
+                            paths.num_paths = 1;
+                            paths.paths[0][0] = 'v';
+                            paths.paths[0][1] = '<';
+                        },
+                        '>' => {
+                            paths.paths[0][0] = 'v';
+                            paths.paths[0][1] = '>';
+
+                            paths.paths[1][0] = '>';
+                            paths.paths[1][1] = 'v';
+                        },
+                        else => unreachable,
+                    }
+                },
+                'A' => {
+                    switch (current) {
+                        '<' => {
+                            paths.paths[0][0] = 'v';
+                            paths.paths[0][1] = '<';
+                            paths.paths[0][2] = '<';
+
+                            paths.paths[1][0] = '<';
+                            paths.paths[1][1] = 'v';
+                            paths.paths[1][2] = '<';
+                        },
+                        'v' => {
+                            paths.paths[0][0] = 'v';
+                            paths.paths[0][1] = '<';
+
+                            paths.paths[1][0] = '<';
+                            paths.paths[1][1] = 'v';
+                        },
+                        else => unreachable,
+                    }
+                },
+                '<' => {
+                    switch (current) {
+                        '^' => {
+                            paths.num_paths = 1;
+                            paths.paths[0][0] = '>';
+                            paths.paths[0][1] = '^';
+                        },
+                        'A' => {
+                            paths.paths[0][0] = '>';
+                            paths.paths[0][1] = '^';
+                            paths.paths[0][2] = '>';
+
+                            paths.paths[1][0] = '>';
+                            paths.paths[1][1] = '>';
+                            paths.paths[1][2] = '^';
+                        },
+                        else => unreachable,
+                    }
+                },
+                'v' => {
+                    switch (current) {
+                        'A' => {
+                            paths.paths[0][0] = '>';
+                            paths.paths[0][1] = '^';
+
+                            paths.paths[1][0] = '^';
+                            paths.paths[1][1] = '>';
+                        },
+                        else => unreachable,
+                    }
+                },
+                '>' => {
+                    switch (current) {
+                        '^' => {
+                            paths.paths[0][0] = '<';
+                            paths.paths[0][1] = '^';
+
+                            paths.paths[1][0] = '^';
+                            paths.paths[1][1] = '<';
+                        },
+                        else => unreachable,
+                    }
+                },
+                else => unreachable,
+            }
+        }
+
+        return paths;
+    }
     pub fn calc_step_toward_key(self: *Self, key: u8) u8 {
         if (key == self.current_key()) {
             return ACTIVATE;
@@ -110,7 +284,7 @@ const DirectionalKeypad = struct {
         }
         unreachable;
     }
-    pub fn current_key(self: *Self) u8 {
+    pub fn current_key(self: *const Self) u8 {
         return self.keys[self.current_key_idx].code;
     }
     pub fn move_direction(self: *Self, direction: u8) void {
@@ -127,33 +301,14 @@ const DirectionalKeypad = struct {
     pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype, lookup: *StepLookup) void {
         std.debug.print("DPad[{d}] moving from {c} to key: {c}  ---- {d}\n", .{ self.id, self.current_key(), key, ship.dpads[0].key_presses });
 
-        var lookup_key: u128 = 0;
-        for (0..self.id + 1) |i| {
-            const next_key_bits: u128 = switch (ship.dpads[i].current_key()) {
-                '^' => 1,
-                '<' => 2,
-                'v' => 3,
-                '>' => 4,
-                'A' => 5,
-                else => unreachable,
-            };
-            lookup_key = (lookup_key << 3) | next_key_bits;
-        }
-        lookup_key = (lookup_key << 3) | @as(u128, switch (key) {
-            '^' => 1,
-            '<' => 2,
-            'v' => 3,
-            '>' => 4,
-            'A' => 5,
-            else => unreachable,
-        });
+        const lookup_key = StepLookup.calc_key(ship.dpads[0 .. self.id + 1], key);
 
         if (CACHE_ENABLED) {
             if (lookup.get(lookup_key)) |key_presses| {
-                // Subtract one because we call `.push` later (Maybe don't need to do this)
+                // Subtract one because we call `.push` later
                 ship.dpads[0].key_presses += key_presses - 1;
-                std.debug.print("\n\nCached: 0x{X} --> {d} -> {d}\n\n\n", .{ lookup_key, key_presses, ship.dpads[0].key_presses });
-                const new_key_idx = @as(u8, switch (key) {
+                std.debug.print("Cached: 0x{X} --> {d} -> {d}", .{ lookup_key, key_presses, ship.dpads[0].key_presses });
+                self.current_key_idx = @as(u8, switch (key) {
                     '^' => UP_IDX,
                     '<' => LEFT_IDX,
                     'v' => DOWN_IDX,
@@ -161,7 +316,6 @@ const DirectionalKeypad = struct {
                     'A' => ACTIVATE_IDX,
                     else => unreachable,
                 });
-                self.current_key_idx = new_key_idx;
                 std.debug.print("DPad[{d}] skipping to key: {c}\n", .{ self.id, key });
                 for (0..self.id) |i| {
                     ship.dpads[i].current_key_idx = ACTIVATE_IDX;
@@ -177,11 +331,9 @@ const DirectionalKeypad = struct {
             const step = self.calc_step_toward_key(key);
             if (self.id == 0) {
                 self.move_direction(step);
-                ship.print();
             } else {
                 //std.debug.print("DPad[{d}] needs DPad[{d}] to move to key: {c}\n", .{ self.id, self.id - 1, step });
                 ship.dpads[self.id - 1].move_to_and_activate_key(step, ship, lookup);
-                // ship.dpads[self.id - 1].push(ship);
             }
         }
         //std.debug.print("DPad[{d}] is on target key: {c} \n", .{ self.id, self.current_key() });
@@ -193,7 +345,7 @@ const DirectionalKeypad = struct {
         }
 
         const total_key_presses = ship.dpads[0].key_presses - starting_key_presses;
-        lookup.put(lookup_key, total_key_presses) catch unreachable;
+        lookup.put(lookup_key, total_key_presses);
     }
     pub fn num_key_presses_to_move_to_activate_key(self: *Self) u8 {
         return switch (self.current_key()) {
@@ -691,7 +843,7 @@ pub fn part_two(reader: *Reader) u64 {
 
     const codes = get_codes(reader);
     for (codes) |code| {
-        const button_presses = get_code_button_presses(code, &lookup, 10);
+        const button_presses = get_code_button_presses(code, &lookup, 25);
         const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
         std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
