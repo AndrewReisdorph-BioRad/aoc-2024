@@ -12,6 +12,10 @@ const LEFT = '<';
 const RIGHT = '>';
 const ACTIVATE = 'A';
 
+const CACHE_ENABLED = false;
+
+const StepLookup = std.AutoHashMap(u128, u64);
+
 const Code = [4]u8;
 
 const Key = struct { code: u8, up: ?usize = null, down: ?usize = null, left: ?usize = null, right: ?usize = null };
@@ -48,13 +52,13 @@ const DirectionalKeypad = struct {
     }
     pub fn increment_push(self: *Self) void {
         self.key_presses += 1;
-        if (self.id == 0 and (self.key_presses % 10000000 == 0)) {
-            std.debug.print("Key Presses: {d}\n", .{self.key_presses});
+        if (self.id == 0) {
+            std.debug.print("DPad[{d}] Key Presses: {d}\n", .{ self.id, self.key_presses });
         }
     }
     pub fn push(self: *Self, ship: anytype) void {
         const current = self.current_key();
-        //std.debug.print("DPad[{d}] pushing key {c}\n", .{ self.id, current });
+        std.debug.print("DPad[{d}]:{d} pushing key {c} ---- {d}\n", .{ self.id, self.key_presses, current, ship.dpads[0].key_presses });
 
         self.increment_push();
         if (self.id < ship.dpads.len - 1) {
@@ -118,10 +122,57 @@ const DirectionalKeypad = struct {
             else => unreachable,
         }
         self.increment_push();
-        //std.debug.print("DPad[{d}] moving {c}\n", .{ self.id, direction });
+        std.debug.print("DPad[{d}] moving {c}\n", .{ self.id, direction });
     }
-    pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype) void {
-        //std.debug.print("DPad[{d}] moving from {c} to key: {c}\n", .{ self.id, self.current_key(), key });
+    pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype, lookup: *StepLookup) void {
+        std.debug.print("DPad[{d}] moving from {c} to key: {c}  ---- {d}\n", .{ self.id, self.current_key(), key, ship.dpads[0].key_presses });
+
+        var lookup_key: u128 = 0;
+        for (0..self.id + 1) |i| {
+            const next_key_bits: u128 = switch (ship.dpads[i].current_key()) {
+                '^' => 1,
+                '<' => 2,
+                'v' => 3,
+                '>' => 4,
+                'A' => 5,
+                else => unreachable,
+            };
+            lookup_key = (lookup_key << 3) | next_key_bits;
+        }
+        lookup_key = (lookup_key << 3) | @as(u128, switch (key) {
+            '^' => 1,
+            '<' => 2,
+            'v' => 3,
+            '>' => 4,
+            'A' => 5,
+            else => unreachable,
+        });
+
+        if (CACHE_ENABLED) {
+            if (lookup.get(lookup_key)) |key_presses| {
+                // Subtract one because we call `.push` later (Maybe don't need to do this)
+                ship.dpads[0].key_presses += key_presses - 1;
+                std.debug.print("\n\nCached: 0x{X} --> {d} -> {d}\n\n\n", .{ lookup_key, key_presses, ship.dpads[0].key_presses });
+                const new_key_idx = @as(u8, switch (key) {
+                    '^' => UP_IDX,
+                    '<' => LEFT_IDX,
+                    'v' => DOWN_IDX,
+                    '>' => RIGHT_IDX,
+                    'A' => ACTIVATE_IDX,
+                    else => unreachable,
+                });
+                self.current_key_idx = new_key_idx;
+                std.debug.print("DPad[{d}] skipping to key: {c}\n", .{ self.id, key });
+                for (0..self.id) |i| {
+                    ship.dpads[i].current_key_idx = ACTIVATE_IDX;
+                }
+                ship.dpads[0].push(ship);
+                return;
+            }
+        }
+
+        const starting_key_presses = ship.dpads[0].key_presses;
+
         while (self.current_key() != key) {
             const step = self.calc_step_toward_key(key);
             if (self.id == 0) {
@@ -129,7 +180,7 @@ const DirectionalKeypad = struct {
                 ship.print();
             } else {
                 //std.debug.print("DPad[{d}] needs DPad[{d}] to move to key: {c}\n", .{ self.id, self.id - 1, step });
-                ship.dpads[self.id - 1].move_to_and_activate_key(step, ship);
+                ship.dpads[self.id - 1].move_to_and_activate_key(step, ship, lookup);
                 // ship.dpads[self.id - 1].push(ship);
             }
         }
@@ -138,8 +189,11 @@ const DirectionalKeypad = struct {
         if (self.id == 0) {
             self.push(ship);
         } else {
-            ship.dpads[self.id - 1].move_to_and_activate_key('A', ship);
+            ship.dpads[self.id - 1].move_to_and_activate_key('A', ship, lookup);
         }
+
+        const total_key_presses = ship.dpads[0].key_presses - starting_key_presses;
+        lookup.put(lookup_key, total_key_presses) catch unreachable;
     }
     pub fn num_key_presses_to_move_to_activate_key(self: *Self) u8 {
         return switch (self.current_key()) {
@@ -537,15 +591,18 @@ fn SpaceShip(num_dpads: comptime_int) type {
             }
             self.numpad.print();
         }
-        pub fn follow_numpad_path(self: *Self, path: []const u8) void {
+        pub fn follow_numpad_path(self: *Self, path: []const u8, lookup: *StepLookup) void {
             std.debug.print("Following numpad path: {s}\n", .{path});
             std.debug.print("Starting on: {c}\n", .{self.numpad.current_key()});
             for (path) |step| {
-                std.debug.print("Aligning numpad cursor\n", .{});
-                self.dpads[num_dpads - 1].move_to_and_activate_key(step, self);
+                std.debug.print("Stepping: {c}\n", .{step});
+                // for (&self.dpads) |*dpad| {
+                //     std.debug.print("DPad[{d}] {c}\n", .{ dpad.id, dpad.current_key() });
+                // }
+                self.dpads[num_dpads - 1].move_to_and_activate_key(step, self, lookup);
             }
 
-            self.dpads[num_dpads - 1].move_to_and_activate_key('A', self);
+            self.dpads[num_dpads - 1].move_to_and_activate_key('A', self, lookup);
         }
     };
 }
@@ -568,7 +625,7 @@ pub fn get_codes(reader: *Reader) [5]Code {
 
 // Assumptions:
 // 1. It is always most efficient to move in straight lines i.e. no stair steps
-pub fn get_code_button_presses(code: Code, num_dpads: comptime_int) u64 {
+pub fn get_code_button_presses(code: Code, lookup: *StepLookup, num_dpads: comptime_int) u64 {
     std.debug.print("Handling code: {s}\n", .{code});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -589,10 +646,10 @@ pub fn get_code_button_presses(code: Code, num_dpads: comptime_int) u64 {
         for (ships.items) |*ship| {
             var copy = ship.*;
             //std.debug.print("[1/{}] ", .{paths.num_paths});
-            ship.follow_numpad_path(paths.paths[0][0..paths.length]);
+            ship.follow_numpad_path(paths.paths[0][0..paths.length], lookup);
             if (paths.num_paths > 1) {
                 //std.debug.print("[2/{}] ", .{paths.num_paths});
-                copy.follow_numpad_path(paths.paths[1][0..paths.length]);
+                copy.follow_numpad_path(paths.paths[1][0..paths.length], lookup);
                 new_ships.append(copy) catch unreachable;
             }
         }
@@ -614,8 +671,10 @@ pub fn get_code_button_presses(code: Code, num_dpads: comptime_int) u64 {
 pub fn part_one(reader: *Reader) u64 {
     var sum: u64 = 0;
     const codes = get_codes(reader);
+    var lookup = StepLookup.init(std.heap.page_allocator);
+    defer lookup.deinit();
     for (codes) |code| {
-        const button_presses = get_code_button_presses(code, 2);
+        const button_presses = get_code_button_presses(code, &lookup, 2);
         const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
         std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
@@ -627,9 +686,12 @@ pub fn part_one(reader: *Reader) u64 {
 
 pub fn part_two(reader: *Reader) u64 {
     var sum: u64 = 0;
+    var lookup = StepLookup.init(std.heap.page_allocator);
+    defer lookup.deinit();
+
     const codes = get_codes(reader);
     for (codes) |code| {
-        const button_presses = get_code_button_presses(code, 25);
+        const button_presses = get_code_button_presses(code, &lookup, 10);
         const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
         std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
@@ -703,5 +765,7 @@ test "part 2 big" {
     // 197112 is too low
     // 6858192 is too low
     // 16174438 is too low
+
+    // 233490962379162 not right
     try std.testing.expectEqual(1, result);
 }
