@@ -1,5 +1,8 @@
 const std = @import("std");
 const Reader = @import("utils/reader.zig").Reader;
+const Grid = @import("utils/grid.zig").Grid;
+const Position = @import("utils/grid.zig").Position;
+
 const benchmark = @import("utils/benchmark.zig");
 const Stack = @import("utils/stack.zig").Stack;
 
@@ -12,142 +15,71 @@ const LEFT = '<';
 const RIGHT = '>';
 const ACTIVATE = 'A';
 
-const CACHE_ENABLED = true;
+const Code = [4]u8;
 
-const StepLookup = struct {
+const DPadKeyCode = enum(u3) {
     const Self = @This();
-    map: std.AutoHashMap(u128, u64),
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{ .map = std.AutoHashMap(u128, u64).init(allocator) };
-    }
-    pub fn deinit(self: *Self) void {
-        self.map.deinit();
-    }
-    pub fn calc_key(dpads: []DirectionalKeypad, step: u8) u128 {
-        var key: u128 = 0;
-        for (dpads) |dpad| {
-            const next_key_bits: u128 = switch (dpad.current_key()) {
-                '^' => 1,
-                '<' => 2,
-                'v' => 3,
-                '>' => 4,
-                'A' => 5,
-                else => unreachable,
-            };
-            key = (key << 3) | next_key_bits;
-        }
-        key = (key << 3) | @as(u128, switch (step) {
-            '^' => 1,
-            '<' => 2,
-            'v' => 3,
-            '>' => 4,
-            'A' => 5,
+    up = 1,
+    down = 2,
+    left = 3,
+    right = 4,
+    activate = 5,
+    pub fn from_char(char: u8) Self {
+        return switch (char) {
+            UP => .up,
+            DOWN => .down,
+            LEFT => .left,
+            RIGHT => .right,
+            ACTIVATE => .activate,
             else => unreachable,
-        });
-        return key;
+        };
     }
-    pub fn get(self: *Self, key: u128) ?u64 {
-        return self.map.get(key);
+    pub fn row(self: *const Self) u8 {
+        if (self.* == .up or self.* == .activate) {
+            return 0;
+        }
+        return 1;
     }
-    pub fn put(self: *Self, key: u128, value: u64) void {
-        self.map.put(key, value) catch unreachable;
+    pub fn column(self: *const Self) u8 {
+        return switch (self.*) {
+            .left => 0,
+            .up, .down => 1,
+            else => 2,
+        };
     }
 };
 
-const Code = [4]u8;
-
-const Key = struct { code: u8, up: ?usize = null, down: ?usize = null, left: ?usize = null, right: ?usize = null };
-
 const KeypadPaths = struct {
     const Self = @This();
-    paths: [2][5]u8 = std.mem.zeroes([2][5]u8),
+    paths: [2][5]DPadKeyCode = undefined,
     num_paths: u8 = 0,
     length: u8 = 0,
 };
 
-const DirectionalKeypad = struct {
+const DPad = struct {
     const Self = @This();
-    const UP_IDX = 0;
-    const DOWN_IDX = 1;
-    const LEFT_IDX = 2;
-    const RIGHT_IDX = 3;
-    const ACTIVATE_IDX = 4;
-    current_key_idx: usize = ACTIVATE_IDX,
-    id: usize = 0,
-    key_presses: u64 = 0,
-    keys: [5]Key = .{ Key{ .code = UP, .right = ACTIVATE_IDX, .down = DOWN_IDX }, Key{ .code = DOWN, .left = LEFT_IDX, .right = RIGHT_IDX, .up = UP_IDX }, Key{ .code = LEFT, .right = DOWN_IDX }, Key{ .code = RIGHT, .left = DOWN_IDX, .up = ACTIVATE_IDX }, Key{ .code = ACTIVATE, .left = UP_IDX, .down = RIGHT_IDX } },
-    pub fn right(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].right.?;
-    }
-    pub fn left(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].left.?;
-    }
-    pub fn up(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].up.?;
-    }
-    pub fn down(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].down.?;
-    }
-    pub fn increment_push(self: *Self) void {
-        self.key_presses += 1;
-        if (self.id == 0) {
-            std.debug.print("DPad[{d}] Key Presses: {d}\n", .{ self.id, self.key_presses });
-        }
-    }
-    pub fn push(self: *Self, ship: anytype) void {
-        const current = self.current_key();
-        std.debug.print("DPad[{d}]:{d} pushing key {c} ---- {d}\n", .{ self.id, self.key_presses, current, ship.dpads[0].key_presses });
-
-        self.increment_push();
-        if (self.id < ship.dpads.len - 1) {
-            if (current == 'A') {
-                ship.dpads[self.id + 1].push(ship);
-            } else {
-                ship.dpads[self.id + 1].move_direction(current);
-                ship.print();
-            }
-        } else {
-            if (current == 'A') {
-                ship.numpad.push();
-            } else {
-                ship.numpad.move_direction(current);
-                ship.print();
-            }
-        }
-    }
-    pub fn get_key_row(key: u8) u8 {
-        return @as(u8, (key != '^' and key != 'A'));
-    }
-    pub fn get_key_column(key: u8) u8 {
-        return switch (key) {
-            '<' => 0,
-            '^' | 'v' => 1,
-            else => 2,
-        };
-    }
-    pub fn calc_paths_to_key(self: *Self, key: u8) KeypadPaths {
+    current: DPadKeyCode = .activate,
+    pub fn calc_paths_to_key(self: *Self, key: DPadKeyCode) KeypadPaths {
         // Four options exists:
         // 0. Key is the current key
         // 1. Key is on same row/column and we only need to move in one direction
         // 2. Move vertically and then horizontally
         // 3. Move horizontally and then vertically
         var paths = KeypadPaths{};
-        const current = self.current_key();
 
-        if (key == current) {
+        if (key == self.current) {
             return paths;
         }
 
-        const current_row = Self.get_key_row(current);
-        const current_col = Self.get_key_column(current);
+        const current_row = self.current.row();
+        const current_col = self.current.column();
+        const key_row = key.row();
+        const key_col = key.column();
 
-        const key_row = Self.get_key_row(key);
-        const key_col = Self.get_key_column(key);
-
-        const horizontal_direction = if (current_col > key_col) LEFT else RIGHT;
-        const vertical_direction = if (current_row > key_row) UP else DOWN;
-        const horizontal_distance = @as(u8, @abs(@as(i8, current_col) - @as(i8, key_col)));
-        const vertical_distance = @as(u8, @abs(@as(i8, current_row) - @as(i8, key_row)));
+        const horizontal_direction = if (current_col > key_col) DPadKeyCode.left else DPadKeyCode.right;
+        const vertical_direction = if (current_row > key_row) DPadKeyCode.up else DPadKeyCode.down;
+        const horizontal_distance = @as(u8, @abs(@as(i8, @intCast(current_col)) - @as(i8, @intCast(key_col))));
+        const vertical_distance = @as(u8, @abs(@as(i8, @intCast(current_row)) - @as(i8, @intCast(key_row))));
 
         paths.length = horizontal_distance + vertical_distance;
 
@@ -163,319 +95,188 @@ const DirectionalKeypad = struct {
             }
         } else {
             paths.num_paths = 2;
-            switch (current) {
-                '^' => {
+            switch (self.current) {
+                .up => {
                     switch (key) {
-                        '<' => {
+                        .left => {
                             paths.num_paths = 1;
-                            paths.paths[0][0] = 'v';
-                            paths.paths[0][1] = '<';
+                            paths.paths[0][0] = .down;
+                            paths.paths[0][1] = .left;
                         },
-                        '>' => {
-                            paths.paths[0][0] = 'v';
-                            paths.paths[0][1] = '>';
+                        .right => {
+                            paths.paths[0][0] = .down;
+                            paths.paths[0][1] = .right;
 
-                            paths.paths[1][0] = '>';
-                            paths.paths[1][1] = 'v';
+                            paths.paths[1][0] = .right;
+                            paths.paths[1][1] = .down;
                         },
                         else => unreachable,
                     }
                 },
-                'A' => {
-                    switch (current) {
-                        '<' => {
-                            paths.paths[0][0] = 'v';
-                            paths.paths[0][1] = '<';
-                            paths.paths[0][2] = '<';
+                .activate => {
+                    switch (key) {
+                        .left => {
+                            paths.paths[0][0] = .down;
+                            paths.paths[0][1] = .left;
+                            paths.paths[0][2] = .left;
 
-                            paths.paths[1][0] = '<';
-                            paths.paths[1][1] = 'v';
-                            paths.paths[1][2] = '<';
+                            paths.paths[1][0] = .left;
+                            paths.paths[1][1] = .down;
+                            paths.paths[1][2] = .left;
                         },
-                        'v' => {
-                            paths.paths[0][0] = 'v';
-                            paths.paths[0][1] = '<';
+                        .down => {
+                            paths.paths[0][0] = .down;
+                            paths.paths[0][1] = .left;
 
-                            paths.paths[1][0] = '<';
-                            paths.paths[1][1] = 'v';
+                            paths.paths[1][0] = .left;
+                            paths.paths[1][1] = .down;
                         },
                         else => unreachable,
                     }
                 },
-                '<' => {
-                    switch (current) {
-                        '^' => {
+                .left => {
+                    switch (key) {
+                        .up => {
                             paths.num_paths = 1;
-                            paths.paths[0][0] = '>';
-                            paths.paths[0][1] = '^';
+                            paths.paths[0][0] = .right;
+                            paths.paths[0][1] = .up;
                         },
-                        'A' => {
-                            paths.paths[0][0] = '>';
-                            paths.paths[0][1] = '^';
-                            paths.paths[0][2] = '>';
+                        .activate => {
+                            paths.paths[0][0] = .right;
+                            paths.paths[0][1] = .up;
+                            paths.paths[0][2] = .right;
 
-                            paths.paths[1][0] = '>';
-                            paths.paths[1][1] = '>';
-                            paths.paths[1][2] = '^';
+                            paths.paths[1][0] = .right;
+                            paths.paths[1][1] = .right;
+                            paths.paths[1][2] = .up;
                         },
                         else => unreachable,
                     }
                 },
-                'v' => {
-                    switch (current) {
-                        'A' => {
-                            paths.paths[0][0] = '>';
-                            paths.paths[0][1] = '^';
+                .down => {
+                    switch (key) {
+                        .activate => {
+                            paths.paths[0][0] = .right;
+                            paths.paths[0][1] = .up;
 
-                            paths.paths[1][0] = '^';
-                            paths.paths[1][1] = '>';
+                            paths.paths[1][0] = .up;
+                            paths.paths[1][1] = .right;
                         },
                         else => unreachable,
                     }
                 },
-                '>' => {
-                    switch (current) {
-                        '^' => {
-                            paths.paths[0][0] = '<';
-                            paths.paths[0][1] = '^';
+                .right => {
+                    switch (key) {
+                        .up => {
+                            paths.paths[0][0] = .left;
+                            paths.paths[0][1] = .up;
 
-                            paths.paths[1][0] = '^';
-                            paths.paths[1][1] = '<';
+                            paths.paths[1][0] = .up;
+                            paths.paths[1][1] = .left;
                         },
                         else => unreachable,
                     }
                 },
-                else => unreachable,
             }
         }
 
         return paths;
     }
-    pub fn calc_step_toward_key(self: *Self, key: u8) u8 {
-        if (key == self.current_key()) {
-            return ACTIVATE;
-        }
-        if (self.current_key_idx == ACTIVATE_IDX) {
-            if (key == RIGHT or key == LEFT) {
-                return DOWN;
-            }
-            return LEFT;
-        }
-        if (self.current_key_idx == UP_IDX) {
-            if (key == ACTIVATE) {
-                return RIGHT;
-            }
-            return DOWN;
-        }
-        if (self.current_key_idx == LEFT_IDX) {
-            return RIGHT;
-        }
-        if (self.current_key_idx == DOWN_IDX) {
-            if (key == ACTIVATE) {
-                return RIGHT;
-            }
-            return key;
-        }
-        if (self.current_key_idx == RIGHT_IDX) {
-            if (key == ACTIVATE) {
-                return UP;
-            }
-            return LEFT;
-        }
-        unreachable;
-    }
-    pub fn current_key(self: *const Self) u8 {
-        return self.keys[self.current_key_idx].code;
-    }
-    pub fn move_direction(self: *Self, direction: u8) void {
-        switch (direction) {
-            '^' => self.up(),
-            '>' => self.right(),
-            'v' => self.down(),
-            '<' => self.left(),
-            else => unreachable,
-        }
-        self.increment_push();
-        std.debug.print("DPad[{d}] moving {c}\n", .{ self.id, direction });
-    }
-    pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype, lookup: *StepLookup) void {
-        std.debug.print("DPad[{d}] moving from {c} to key: {c}  ---- {d}\n", .{ self.id, self.current_key(), key, ship.dpads[0].key_presses });
+    pub fn calc_cost_to_press_key(self: *Self, key: DPadKeyCode, id: u8, dpads: []DPad) u64 {
+        const old_current = self.current;
+        if (id == 0) {
+            self.current = key;
+            return @as(u64, switch (old_current) {
+                .up => switch (key) {
+                    .up => 0,
+                    .down => 1,
+                    .left => 2,
+                    .right => 2,
+                    .activate => 1,
+                },
+                .down => switch (key) {
+                    .up => 1,
+                    .down => 0,
+                    .left => 1,
+                    .right => 1,
+                    .activate => 2,
+                },
+                .left => switch (key) {
+                    .up => 2,
+                    .down => 1,
+                    .left => 0,
+                    .right => 2,
+                    .activate => 3,
+                },
+                .right => switch (key) {
+                    .up => 2,
+                    .down => 1,
+                    .left => 2,
+                    .right => 0,
+                    .activate => 1,
+                },
+                .activate => switch (key) {
+                    .up => 1,
+                    .down => 2,
+                    .left => 3,
+                    .right => 1,
+                    .activate => 0,
+                },
+            }) + 1;
+        } else {
+            const paths = self.calc_paths_to_key(key);
+            self.current = key;
 
-        const lookup_key = StepLookup.calc_key(ship.dpads[0 .. self.id + 1], key);
-
-        if (CACHE_ENABLED) {
-            if (lookup.get(lookup_key)) |key_presses| {
-                // Subtract one because we call `.push` later
-                ship.dpads[0].key_presses += key_presses - 1;
-                std.debug.print("Cached: 0x{X} --> {d} -> {d}", .{ lookup_key, key_presses, ship.dpads[0].key_presses });
-                self.current_key_idx = @as(u8, switch (key) {
-                    '^' => UP_IDX,
-                    '<' => LEFT_IDX,
-                    'v' => DOWN_IDX,
-                    '>' => RIGHT_IDX,
-                    'A' => ACTIVATE_IDX,
-                    else => unreachable,
-                });
-                std.debug.print("DPad[{d}] skipping to key: {c}\n", .{ self.id, key });
-                for (0..self.id) |i| {
-                    ship.dpads[i].current_key_idx = ACTIVATE_IDX;
+            if (paths.num_paths > 1) {
+                // Create copy of current D-Pad state
+                var dpads_copy: [25]DPad = undefined;
+                for (0..dpads.len) |i| {
+                    dpads_copy[i] = dpads[i];
                 }
-                ship.dpads[0].push(ship);
-                return;
-            }
-        }
 
-        const starting_key_presses = ship.dpads[0].key_presses;
+                var first_path_total_cost: u64 = 0;
+                for (paths.paths[0][0..paths.length]) |step| {
+                    first_path_total_cost += dpads[id - 1].calc_cost_to_press_key(step, id - 1, dpads);
+                }
+                first_path_total_cost += dpads[id - 1].calc_cost_to_press_key(DPadKeyCode.activate, id - 1, dpads);
 
-        while (self.current_key() != key) {
-            const step = self.calc_step_toward_key(key);
-            if (self.id == 0) {
-                self.move_direction(step);
+                var second_path_total_cost: u64 = 0;
+                for (paths.paths[1][0..paths.length]) |step| {
+                    second_path_total_cost += dpads_copy[id - 1].calc_cost_to_press_key(step, id - 1, &dpads_copy);
+                }
+                second_path_total_cost += dpads_copy[id - 1].calc_cost_to_press_key(DPadKeyCode.activate, id - 1, &dpads_copy);
+
+                if (second_path_total_cost < first_path_total_cost) {
+                    for (0..dpads.len) |i| {
+                        dpads[i] = dpads_copy[i];
+                    }
+                    return second_path_total_cost;
+                }
+                return first_path_total_cost;
             } else {
-                //std.debug.print("DPad[{d}] needs DPad[{d}] to move to key: {c}\n", .{ self.id, self.id - 1, step });
-                ship.dpads[self.id - 1].move_to_and_activate_key(step, ship, lookup);
+                var first_path_total_cost: u64 = 0;
+                for (paths.paths[0][0..paths.length]) |step| {
+                    first_path_total_cost += dpads[id - 1].calc_cost_to_press_key(step, id - 1, dpads);
+                }
+                first_path_total_cost += dpads[id - 1].calc_cost_to_press_key(DPadKeyCode.activate, id - 1, dpads);
+
+                return first_path_total_cost;
             }
         }
-        //std.debug.print("DPad[{d}] is on target key: {c} \n", .{ self.id, self.current_key() });
-
-        if (self.id == 0) {
-            self.push(ship);
-        } else {
-            ship.dpads[self.id - 1].move_to_and_activate_key('A', ship, lookup);
-        }
-
-        const total_key_presses = ship.dpads[0].key_presses - starting_key_presses;
-        lookup.put(lookup_key, total_key_presses);
-    }
-    pub fn num_key_presses_to_move_to_activate_key(self: *Self) u8 {
-        return switch (self.current_key()) {
-            'A' => 0,
-            '^' => 1,
-            '<' => 3,
-            'v' => 2,
-            '>' => 1,
-            else => unreachable,
-        };
-    }
-    pub fn reset(self: *Self) void {
-        self.current_key_idx = ACTIVATE_IDX;
-    }
-    pub fn print(self: *Self) void {
-        const current = self.current_key();
-        //std.debug.print("   _ _ \n", .{});
-        if (current == '^') {
-            //std.debug.print(" _|#|A|\n", .{});
-        } else if (current == 'A') {
-            //std.debug.print(" _|^|#|\n", .{});
-        } else {
-            //std.debug.print(" _|^|A|\n", .{});
-        }
-
-        if (current == '<') {
-            //std.debug.print("|#|v|>|\n", .{});
-        } else if (current == 'v') {
-            //std.debug.print("|<|#|>|\n", .{});
-        } else if (current == '>') {
-            //std.debug.print("|<|v|#|\n", .{});
-        } else {
-            //std.debug.print("|<|v|>|\n", .{});
-        }
-        //std.debug.print(" - - -\n", .{});
     }
 };
 
-const NumericKeypad = struct {
+const PathNode = struct { position: Position, cost: u64 };
+
+const NumPad = struct {
     const Self = @This();
-    const ACTIVATE_IDX = 10;
-    current_key_idx: usize = ACTIVATE_IDX,
-    last_direction: ?u8 = UP,
-    keys: [11]Key = .{
-        Key{ .code = '0', .up = 2, .right = ACTIVATE_IDX },
-        Key{ .code = '1', .up = 4, .right = 2 },
-        Key{ .code = '2', .up = 5, .right = 3, .down = 0, .left = 1 },
-        Key{ .code = '3', .up = 6, .down = ACTIVATE_IDX, .left = 2 },
-        Key{ .code = '4', .up = 7, .right = 5, .down = 1 },
-        Key{ .code = '5', .up = 8, .right = 6, .down = 2, .left = 4 },
-        Key{ .code = '6', .up = 9, .down = 3, .left = 5 },
-        Key{ .code = '7', .right = 8, .down = 4 },
-        Key{ .code = '8', .left = 7, .right = 9, .down = 5 },
-        Key{ .code = '9', .left = 8, .down = 6 },
-        Key{ .code = ACTIVATE, .up = 3, .left = 0 },
-    },
-    pub fn right(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].right.?;
-    }
-    pub fn left(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].left.?;
-    }
-    pub fn up(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].up.?;
-    }
-    pub fn down(self: *Self) void {
-        self.current_key_idx = self.keys[self.current_key_idx].down.?;
-    }
-    pub fn move_direction(self: *Self, direction: u8) void {
-        switch (direction) {
-            '^' => self.up(),
-            '>' => self.right(),
-            'v' => self.down(),
-            '<' => self.left(),
-            else => unreachable,
-        }
-        self.last_direction = direction;
-        std.debug.print("NumPad moved to: {c}\n", .{self.current_key()});
-    }
-    pub fn current_key(self: *Self) u8 {
-        return self.keys[self.current_key_idx].code;
-    }
-    pub fn key_dist(key_a: u8, key_b: u8) u8 {
-        // determine column for requested key
-        var key_a_column: u8 = 0; // left column
-        if (key_a == 'A') {
-            key_a_column = 2;
-        } else if (key_a == '0') {
-            key_a_column = 1;
-        } else if ((key_a - 47) % 3 == 0) {
-            key_a_column = 1; // middle column
-        } else if ((key_a - 48) % 3 == 0) {
-            key_a_column = 2; // right column
-        }
-
-        var key_a_row: u8 = 3;
-        if (key_a == 'A') {
-            key_a_row = 3;
-        } else if ((key_a - 48) >= 7) {
-            key_a_row = 0;
-        } else if ((key_a - 48) >= 4) {
-            key_a_row = 1;
-        } else if ((key_a - 48) >= 1) {
-            key_a_row = 2;
-        }
-
-        var key_b_column: u8 = 0;
-        if (key_b == 'A') {
-            key_b_column = 2;
-        } else if (key_b == '0') {
-            key_b_column = 1;
-        } else if ((key_b - 47) % 3 == 0) {
-            key_b_column = 1;
-        } else if ((key_b - 48) % 3 == 0) {
-            key_b_column = 2;
-        }
-
-        var key_b_row: u8 = 3;
-        if (key_b == 'A') {
-            key_b_row = 3;
-        } else if ((key_b - 48) >= 7) {
-            key_b_row = 0;
-        } else if ((key_b - 48) >= 4) {
-            key_b_row = 1;
-        } else if ((key_b - 48) >= 1) {
-            key_b_row = 2;
-        }
-
-        return @as(u8, @intCast(@abs(@as(i16, key_a_column) - @as(i16, key_b_column)) + @abs(@as(i16, key_a_row) - @as(i16, key_b_row))));
-    }
+    inner: Grid = Grid.init(
+        \\789
+        \\456
+        \\123
+        \\X0A
+    ),
+    pos: Position = Position{ .x = 2, .y = 3 },
     pub fn get_key_column(key: u8) u8 {
         const key_mod_3 = (key - 48) % 3;
         if (key == 'A') {
@@ -521,7 +322,7 @@ const NumericKeypad = struct {
         const current_row = Self.get_key_row(current);
 
         if (key_column == current_column) {
-            const direction: u8 = if (key_row > current_row) DOWN else UP;
+            const direction = if (key_row > current_row) DPadKeyCode.down else DPadKeyCode.up;
             paths.num_paths = 1;
             paths.length = @abs(@as(i8, @intCast(key_row)) - @as(i8, @intCast(current_row)));
             for (0..paths.length) |i| {
@@ -531,7 +332,7 @@ const NumericKeypad = struct {
         }
 
         if (key_row == current_row) {
-            const direction: u8 = if (key_column > current_column) RIGHT else LEFT;
+            const direction = if (key_column > current_column) DPadKeyCode.right else DPadKeyCode.left;
             paths.num_paths = 1;
             paths.length = @abs(@as(i8, @intCast(key_column)) - @as(i8, @intCast(current_column)));
             for (0..paths.length) |i| {
@@ -540,8 +341,8 @@ const NumericKeypad = struct {
             return paths;
         }
 
-        const vertical_direction: u8 = if (key_row > current_row) DOWN else UP;
-        const horizontal_direction: u8 = if (key_column > current_column) RIGHT else LEFT;
+        const vertical_direction = if (key_row > current_row) DPadKeyCode.down else DPadKeyCode.up;
+        const horizontal_direction = if (key_column > current_column) DPadKeyCode.right else DPadKeyCode.left;
         const horizontal_distance = @abs(@as(i8, @intCast(key_column)) - @as(i8, @intCast(current_column)));
         const vertical_distance = @abs(@as(i8, @intCast(key_row)) - @as(i8, @intCast(current_row)));
         paths.length = horizontal_distance + vertical_distance;
@@ -557,9 +358,9 @@ const NumericKeypad = struct {
             }
 
             // The horizontal case can only go as far as '0'
-            paths.paths[1][0] = '<';
-            paths.paths[1][1] = '^';
-            paths.paths[1][2] = '<';
+            paths.paths[1][0] = DPadKeyCode.left;
+            paths.paths[1][1] = DPadKeyCode.up;
+            paths.paths[1][2] = DPadKeyCode.left;
             for (3..3 + (vertical_distance - 1)) |i| {
                 paths.paths[1][i] = vertical_direction;
             }
@@ -576,8 +377,8 @@ const NumericKeypad = struct {
             for (0..(vertical_distance - 1)) |i| {
                 paths.paths[1][i] = vertical_direction;
             }
-            paths.paths[1][vertical_distance - 1] = '>';
-            paths.paths[1][vertical_distance] = 'v';
+            paths.paths[1][vertical_distance - 1] = DPadKeyCode.right;
+            paths.paths[1][vertical_distance] = DPadKeyCode.down;
             for (vertical_distance + 1..vertical_distance + 1 + horizontal_distance) |i| {
                 paths.paths[0][i] = horizontal_direction;
             }
@@ -601,163 +402,154 @@ const NumericKeypad = struct {
 
         return paths;
     }
-    pub fn calc_step_toward_key(self: *Self, key: u8) u8 {
-        // Check if current key is requested key
-        const current = self.current_key();
-        const key_as_digit = key - 48;
-        if (key == current) {
-            return ACTIVATE;
-        }
+};
 
-        const current_distance_to_key = Self.key_dist(key, self.current_key());
+fn State(num_dpads: comptime_int) type {
+    return struct { dpads: [num_dpads]DPad = .{DPad{}} ** num_dpads, keypresses: u64 = 0 };
+}
 
-        if (self.last_direction) |last| {
-            // If we can continue in the same direction that we've been traveling, do that
-            const maybe_same_direction_key = switch (last) {
-                UP => self.keys[self.current_key_idx].up,
-                DOWN => self.keys[self.current_key_idx].down,
-                LEFT => self.keys[self.current_key_idx].left,
-                RIGHT => self.keys[self.current_key_idx].right,
-                else => unreachable,
-            };
-            if (maybe_same_direction_key) |same_direction_key| {
-                const same_direction_key_dist = Self.key_dist(key, self.keys[same_direction_key].code);
-                if (same_direction_key_dist < current_distance_to_key) {
-                    //std.debug.print("Last direction {c} can be used\n", .{last});
-                    return last;
+pub fn get_code_cost(code: Code, num_dpads: comptime_int, state: *State(num_dpads)) u64 {
+    state.keypresses = 0;
+    var super_paths = std.ArrayList(@TypeOf(state.*)).init(std.heap.page_allocator);
+    var new_super_paths = std.ArrayList(@TypeOf(state.*)).init(std.heap.page_allocator);
+
+    defer super_paths.deinit();
+    defer new_super_paths.deinit();
+
+    super_paths.append(state.*) catch unreachable;
+
+    var last_numpad_key: u8 = 'A';
+    for (code) |c| {
+        const paths = NumPad.calc_paths_to_key(last_numpad_key, c);
+
+        for (super_paths.items) |*super_path| {
+            var second_path_state: @TypeOf(state.*) = super_path.*;
+
+            for (paths.paths[0][0..paths.length]) |k| {
+                super_path.keypresses += super_path.dpads[num_dpads - 1].calc_cost_to_press_key(k, @as(u8, @intCast(num_dpads - 1)), &super_path.dpads);
+            }
+            super_path.keypresses += super_path.dpads[num_dpads - 1].calc_cost_to_press_key(DPadKeyCode.activate, @as(u8, @intCast(num_dpads - 1)), &super_path.dpads);
+
+            if (paths.num_paths > 1) {
+                for (paths.paths[1][0..paths.length]) |k| {
+                    second_path_state.keypresses += second_path_state.dpads[num_dpads - 1].calc_cost_to_press_key(k, @as(u8, @intCast(num_dpads - 1)), &second_path_state.dpads);
                 }
+                second_path_state.keypresses += second_path_state.dpads[num_dpads - 1].calc_cost_to_press_key(DPadKeyCode.activate, @as(u8, @intCast(num_dpads - 1)), &second_path_state.dpads);
+
+                new_super_paths.append(second_path_state) catch unreachable;
             }
         }
 
-        // determine column for requested key
-        var key_column: u8 = 0; // left column
-        if (key == 'A') {
-            key_column = 2;
-        } else if (key_as_digit == 0) {
-            key_column = 1;
-        } else if ((key_as_digit + 1) % 3 == 0) {
-            key_column = 1; // middle column
-        } else if (key_as_digit % 3 == 0) {
-            key_column = 2; // right column
-        }
+        super_paths.appendSlice(new_super_paths.items) catch unreachable;
+        new_super_paths.clearRetainingCapacity();
 
-        var current_column: u8 = 0;
-        if (current == 'A') {
-            current_column = 2;
-        } else if (current == '0') {
-            current_column = 1;
-        } else if ((self.current_key_idx + 1) % 3 == 0) {
-            current_column = 1;
-        } else if (self.current_key_idx % 3 == 0) {
-            current_column = 2;
-        }
-
-        // Special case for A
-        if (current == 'A') {
-            if (key_column == current_column) {
-                return UP;
-            }
-            if (key_column == 0) {
-                return UP;
-            }
-            if (key_column == 1) {
-                return LEFT;
-            }
-        }
-
-        if (key_column == current_column) {
-            if (key == 'A' or key_as_digit < self.current_key_idx) {
-                return DOWN;
-            }
-        }
-
-        // Check if key is to the left
-        if (key_column < current_column) {
-            return LEFT;
-        } else if (key_column > current_column) {
-            return RIGHT;
-        }
-
-        return UP;
+        last_numpad_key = c;
     }
-    pub fn reset(self: *Self) void {
-        self.current_key_idx = ACTIVATE_IDX;
+
+    var cheapest: u64 = std.math.maxInt(u64);
+    var cheapest_state_ptr = &super_paths.items[0];
+    for (super_paths.items) |*super_path| {
+        cheapest = @min(super_path.keypresses, cheapest);
+        cheapest_state_ptr = super_path;
     }
-    pub fn push(self: *Self) void {
-        std.debug.print("=================\nNumpad Entered: {c}\n=================\n", .{self.current_key()});
+
+    if (state != cheapest_state_ptr) {
+        state.* = cheapest_state_ptr.*;
     }
-    pub fn print(self: *Self) void {
-        const current = self.current_key();
-        //std.debug.print(" _ _ _\n", .{});
-        for ("|7|8|9|\n") |c| {
-            if (c == current) {
-                //std.debug.print("#", .{});
-            } else {
-                //std.debug.print("{c}", .{c});
-            }
+
+    return cheapest;
+}
+
+const CACHE_ENABLED = true;
+
+const StepLookup = struct {
+    const Self = @This();
+    map: std.AutoHashMap(u128, u64),
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{ .map = std.AutoHashMap(u128, u64).init(allocator) };
+    }
+    pub fn deinit(self: *Self) void {
+        self.map.deinit();
+    }
+    pub fn calc_key(dpads: []DPad, step: u8) u128 {
+        var key: u128 = 0;
+        for (dpads) |dpad| {
+            const next_key_bits: u128 = switch (dpad.current_key()) {
+                .up => 1,
+                .left => 2,
+                .down => 3,
+                .right => 4,
+                .activate => 5,
+            };
+            key = (key << 3) | next_key_bits;
         }
-        //std.debug.print(" _ _ _\n", .{});
-        for ("|4|5|6|\n") |c| {
-            if (c == current) {
-                //std.debug.print("#", .{});
-            } else {
-                //std.debug.print("{c}", .{c});
-            }
-        }
-        //std.debug.print(" _ _ _\n", .{});
-        for ("|1|2|3|\n") |c| {
-            if (c == current) {
-                //std.debug.print("#", .{});
-            } else {
-                //std.debug.print("{c}", .{c});
-            }
-        }
-        //std.debug.print(" _ _ _\n", .{});
-        for ("  |0|A|\n") |c| {
-            if (c == current) {
-                //std.debug.print("#", .{});
-            } else {
-                //std.debug.print("{c}", .{c});
-            }
-        }
-        //std.debug.print("   _ _\n", .{});
+        key = (key << 3) | @as(u128, switch (step) {
+            '^' => 1,
+            '<' => 2,
+            'v' => 3,
+            '>' => 4,
+            'A' => 5,
+            else => unreachable,
+        });
+        return key;
+    }
+    pub fn get(self: *Self, key: u128) ?u64 {
+        return self.map.get(key);
+    }
+    pub fn put(self: *Self, key: u128, value: u64) void {
+        self.map.put(key, value) catch unreachable;
     }
 };
 
-fn SpaceShip(num_dpads: comptime_int) type {
-    return struct {
-        const Self = @This();
-        dpads: [num_dpads]DirectionalKeypad = undefined,
-        numpad: NumericKeypad = NumericKeypad{},
-        pub fn init() Self {
-            var new = Self{};
-            for (0..num_dpads) |i| {
-                new.dpads[i] = DirectionalKeypad{ .id = i };
-            }
-            return new;
-        }
-        pub fn print(self: *Self) void {
-            for (0..num_dpads) |i| {
-                //std.debug.print("DPad: {d}\n", .{i});
-                self.dpads[i].print();
-            }
-            self.numpad.print();
-        }
-        pub fn follow_numpad_path(self: *Self, path: []const u8, lookup: *StepLookup) void {
-            std.debug.print("Following numpad path: {s}\n", .{path});
-            std.debug.print("Starting on: {c}\n", .{self.numpad.current_key()});
-            for (path) |step| {
-                std.debug.print("Stepping: {c}\n", .{step});
-                // for (&self.dpads) |*dpad| {
-                //     std.debug.print("DPad[{d}] {c}\n", .{ dpad.id, dpad.current_key() });
-                // }
-                self.dpads[num_dpads - 1].move_to_and_activate_key(step, self, lookup);
-            }
+//     pub fn move_to_and_activate_key(self: *Self, key: u8, ship: anytype, lookup: *StepLookup) void {
+//         std.debug.print("DPad[{d}] moving from {c} to key: {c}  ---- {d}\n", .{ self.id, self.current_key(), key, ship.dpads[0].key_presses });
 
-            self.dpads[num_dpads - 1].move_to_and_activate_key('A', self, lookup);
-        }
-    };
-}
+//         const lookup_key = StepLookup.calc_key(ship.dpads[0 .. self.id + 1], key);
+
+//         if (CACHE_ENABLED) {
+//             if (lookup.get(lookup_key)) |key_presses| {
+//                 // Subtract one because we call `.push` later
+//                 ship.dpads[0].key_presses += key_presses - 1;
+//                 std.debug.print("Cached: 0x{X} --> {d} -> {d}", .{ lookup_key, key_presses, ship.dpads[0].key_presses });
+//                 self.current_key_idx = @as(u8, switch (key) {
+//                     '^' => UP_IDX,
+//                     '<' => LEFT_IDX,
+//                     'v' => DOWN_IDX,
+//                     '>' => RIGHT_IDX,
+//                     'A' => ACTIVATE_IDX,
+//                     else => unreachable,
+//                 });
+//                 std.debug.print("DPad[{d}] skipping to key: {c}\n", .{ self.id, key });
+//                 for (0..self.id) |i| {
+//                     ship.dpads[i].current_key_idx = ACTIVATE_IDX;
+//                 }
+//                 ship.dpads[0].push(ship);
+//                 return;
+//             }
+//         }
+
+//         const starting_key_presses = ship.dpads[0].key_presses;
+
+//         while (self.current_key() != key) {
+//             const step = self.calc_step_toward_key(key);
+//             if (self.id == 0) {
+//                 self.move_direction(step);
+//             } else {
+//                 //std.debug.print("DPad[{d}] needs DPad[{d}] to move to key: {c}\n", .{ self.id, self.id - 1, step });
+//                 ship.dpads[self.id - 1].move_to_and_activate_key(step, ship, lookup);
+//             }
+//         }
+//         //std.debug.print("DPad[{d}] is on target key: {c} \n", .{ self.id, self.current_key() });
+
+//         if (self.id == 0) {
+//             self.push(ship);
+//         } else {
+//             ship.dpads[self.id - 1].move_to_and_activate_key('A', ship, lookup);
+//         }
+
+//         const total_key_presses = ship.dpads[0].key_presses - starting_key_presses;
+//         lookup.put(lookup_key, total_key_presses);
+//     }
 
 pub fn get_codes(reader: *Reader) [5]Code {
     var codes = std.mem.zeroes([5]Code);
@@ -775,58 +567,15 @@ pub fn get_codes(reader: *Reader) [5]Code {
     return codes;
 }
 
-// Assumptions:
-// 1. It is always most efficient to move in straight lines i.e. no stair steps
-pub fn get_code_button_presses(code: Code, lookup: *StepLookup, num_dpads: comptime_int) u64 {
-    std.debug.print("Handling code: {s}\n", .{code});
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
-
-    const Ship = SpaceShip(num_dpads);
-
-    var new_ships = std.ArrayList(Ship).init(allocator);
-    defer new_ships.deinit();
-    var ships = std.ArrayList(Ship).init(allocator);
-    defer ships.deinit();
-
-    ships.append(Ship.init()) catch unreachable;
-
-    var last_key: u8 = 'A';
-    for (code) |key| {
-        const paths = NumericKeypad.calc_paths_to_key(last_key, key);
-        for (ships.items) |*ship| {
-            var copy = ship.*;
-            //std.debug.print("[1/{}] ", .{paths.num_paths});
-            ship.follow_numpad_path(paths.paths[0][0..paths.length], lookup);
-            if (paths.num_paths > 1) {
-                //std.debug.print("[2/{}] ", .{paths.num_paths});
-                copy.follow_numpad_path(paths.paths[1][0..paths.length], lookup);
-                new_ships.append(copy) catch unreachable;
-            }
-        }
-
-        ships.appendSlice(new_ships.items) catch unreachable;
-        new_ships.clearRetainingCapacity();
-
-        last_key = key;
-    }
-
-    var min_presses: u64 = std.math.maxInt(u64);
-    for (ships.items) |ship| {
-        min_presses = @min(min_presses, ship.dpads[0].key_presses);
-    }
-
-    return min_presses;
-}
-
 pub fn part_one(reader: *Reader) u64 {
     var sum: u64 = 0;
     const codes = get_codes(reader);
-    var lookup = StepLookup.init(std.heap.page_allocator);
-    defer lookup.deinit();
+    const num_dpads = 2;
+    var state = State(num_dpads){};
+    // var lookup = StepLookup.init(std.heap.page_allocator);
+    // defer lookup.deinit();
     for (codes) |code| {
-        const button_presses = get_code_button_presses(code, &lookup, 2);
+        const button_presses = get_code_cost(code, num_dpads, &state);
         const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
         std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
@@ -837,20 +586,23 @@ pub fn part_one(reader: *Reader) u64 {
 }
 
 pub fn part_two(reader: *Reader) u64 {
-    var sum: u64 = 0;
-    var lookup = StepLookup.init(std.heap.page_allocator);
-    defer lookup.deinit();
+    _ = reader;
+    // var sum: u64 = 0;
+    // const codes = get_codes(reader);
+    // var dpads: [25]DPad = .{DPad{}} ** 25;
 
-    const codes = get_codes(reader);
-    for (codes) |code| {
-        const button_presses = get_code_button_presses(code, &lookup, 25);
-        const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
-        std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
+    // // var lookup = StepLookup.init(std.heap.page_allocator);
+    // // defer lookup.deinit();
+    // for (codes) |code| {
+    //     const button_presses = get_code_cost(code, &dpads);
+    //     const numeric_value = std.fmt.parseInt(u64, code[0..3], 10) catch unreachable;
+    //     std.debug.print("\n=========================\nPresses: {d} Code: {d}\n=========================\n", .{ button_presses, numeric_value });
 
-        sum += button_presses * numeric_value;
-    }
+    //     sum += button_presses * numeric_value;
+    // }
 
-    return sum;
+    // return sum;
+    return 0;
 }
 
 pub fn do_benchmark() void {
