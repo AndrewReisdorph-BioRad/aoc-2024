@@ -20,9 +20,19 @@ const Operation = enum {
             else => unreachable,
         };
     }
+    pub fn as_u8(self: *const Self) u8 {
+        return switch (self.*) {
+            .and_ => '&',
+            .or_ => '|',
+            .xor => '^',
+        };
+    }
 };
 
 const Name = [3]u8;
+fn build_name(char: u8, bit: usize) Name {
+    return Name{ char, @as(u8, @intCast(((bit - (bit % 10)) / 10) + 48)), @as(u8, @intCast((bit % 10) + 48)) };
+}
 const Relationship = struct { arg1: Name, arg2: Name, operation: Operation };
 
 pub fn read_inputs(reader: *Reader, values: *std.AutoHashMap(Name, bool), relationships: *std.AutoHashMap(Name, Relationship)) void {
@@ -135,7 +145,9 @@ pub fn part_one(reader: *Reader) u64 {
     return z;
 }
 
-pub fn solve(values: *std.AutoHashMap(Name, bool), relationships: *std.AutoHashMap(Name, Relationship)) void {
+pub fn solve(values: *std.AutoHashMap(Name, bool), relationships: *std.AutoHashMap(Name, Relationship)) u64 {
+    var z: u64 = 0;
+
     var got_new_value = true;
     while (got_new_value == true) {
         got_new_value = false;
@@ -163,215 +175,139 @@ pub fn solve(values: *std.AutoHashMap(Name, bool), relationships: *std.AutoHashM
             values.put(relationship.key_ptr.*, value == 1) catch unreachable;
 
             got_new_value = true;
-        }
-    }
-}
 
-pub fn get_xyz(char: u8, values: *std.AutoHashMap(Name, bool)) u64 {
-    var value_name: Name = .{ char, '0', '0' };
-    var bit: usize = 0;
-    var primary: u64 = 0;
-    while (true) {
-        value_name[1] = @as(u8, @intCast((bit / 10))) + 48;
-        value_name[2] = @as(u8, @intCast((bit % 10))) + 48;
-
-        if (values.get(value_name)) |value| {
-            if (value) {
-                primary |= @intCast(@as(u64, 1) << @intCast(bit));
+            if (value == 1 and relationship.key_ptr[0] == 'z') {
+                const bit: usize = (@as(usize, relationship.key_ptr[1]) - 48) * 10 + (@as(usize, relationship.key_ptr[2]) - 48);
+                z |= @intCast(@as(u64, 1) << @intCast(bit));
             }
-        } else {
-            break;
         }
-
-        bit += 1;
     }
-    return primary;
+
+    return z;
 }
 
-const SwapIdxIter = struct {
-    const Self = @This();
-    total: usize,
-    first: usize = 0,
-    second: usize = 1,
-    pub fn next(self: *Self) ?[2]usize {
-        if (self.second == self.total) {
-            self.first += 1;
-            self.second = self.first + 1;
-        }
-
-        if (self.second >= self.total) {
-            return null;
-        }
-
-        const next_idxs = .{ self.first, self.second };
-        self.second += 1;
-        return next_idxs;
-    }
-};
-
-test "swap iter" {
-    var swap_iter = SwapIdxIter{ .total = 5 };
-    while (swap_iter.next()) |next| {
-        std.debug.print("{any}\n", .{next});
+fn set_default_values(values: *std.AutoHashMap(Name, bool)) void {
+    values.clearRetainingCapacity();
+    for (0..45) |i| {
+        var key = Name{ 'x', @as(u8, @intCast(((i - (i % 10)) / 10) + 48)), @as(u8, @intCast((i % 10) + 48)) };
+        values.put(key, false) catch unreachable;
+        key[0] = 'y';
+        values.put(key, false) catch unreachable;
     }
 }
 
-pub fn part_two(reader: *Reader) u64 {
+fn nameLessThan(_: void, lhs: Name, rhs: Name) bool {
+    return std.mem.order(u8, &lhs, &rhs) == .lt;
+}
+
+pub fn part_two(reader: *Reader) [8]Name {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var values = std.AutoHashMap(Name, bool).init(allocator);
     var relationships = std.AutoHashMap(Name, Relationship).init(allocator);
-
+    //TODO: We don't care about values here
     read_inputs(reader, &values, &relationships);
-    const original_values = values.clone() catch unreachable;
 
-    const x = get_xyz('x', &values);
-    const y = get_xyz('y', &values);
-    const expected_z = x + y;
-
-    solve(&values, &relationships);
-
-    const current_z = get_xyz('z', &values);
-
-    // Only swaps of different values can change the final output
-    var output_iter = values.iterator();
-    var output_names_0 = std.ArrayList(Name).init(allocator);
-    var output_names_1 = std.ArrayList(Name).init(allocator);
-
-    while (output_iter.next()) |entry| {
-        if (entry.key_ptr[0] == 'x' or entry.key_ptr[0] == 'y') {
-            continue;
-        }
-        if (entry.value_ptr.*) {
-            output_names_1.append(entry.key_ptr.*) catch unreachable;
-        } else {
-            output_names_0.append(entry.key_ptr.*) catch unreachable;
+    var test_values = std.AutoHashMap(Name, bool).init(allocator);
+    var incorrect_bits: [4]usize = undefined;
+    var num_incorrect_bits: usize = 0;
+    for (0..45) |i| {
+        set_default_values(&test_values);
+        const key = build_name('y', i);
+        test_values.put(key, true) catch unreachable;
+        const expected_z: u64 = @as(u64, 1) << @intCast(i);
+        const test_z = solve(&test_values, &relationships);
+        if (test_z != expected_z) {
+            incorrect_bits[num_incorrect_bits] = i;
+            num_incorrect_bits += 1;
         }
     }
-    std.debug.print("x: {d} y: {d}\n", .{ x, y });
-    std.debug.print("Expected z = {d}\n", .{expected_z});
 
-    // var swap_iter = SwapIdxIter{ .total = output_names.items.len };
-    // while (swap_iter.next()) |swap| {
-    //     var swapped_relationships = relationships.clone() catch unreachable;
-    //     defer swapped_relationships.deinit();
+    var swaps: [8]Name = undefined;
+    var swap_idx: usize = 0;
 
-    //     const swap_name_a = output_names.items[swap[0]];
-    //     const swap_name_b = output_names.items[swap[1]];
-
-    //     const temp = swapped_relationships.get(swap_name_b).?;
-    //     swapped_relationships.put(swap_name_b, swapped_relationships.get(swap_name_a).?) catch unreachable;
-    //     swapped_relationships.put(swap_name_a, temp) catch unreachable;
-
-    //     var values_copy = values.clone() catch unreachable;
-    //     defer values_copy.deinit();
-    //     solve(&values_copy, &swapped_relationships);
-    //     const new_z = get_xyz('z', &values_copy);
-
-    //     if (bit_diff_count(expected_z, new_z) == 1) {
-    //         std.debug.print("Swapping {s} and {s} changes 1 bit in z\n{b}  {b}\n\n", .{ swap_name_a, swap_name_b, expected_z, new_z });
-    //     }
-    // }
-
-    var swaps = std.ArrayList(Name).init(allocator);
-    _ = solve_with_n_swaps(&original_values, &relationships, 4, output_names_1.items, output_names_0.items, current_z, expected_z, &swaps);
-
-    std.debug.print("Ended with swaps: {s}\n", .{swaps.items});
-
-    return 0;
-}
-
-fn bit_diff_count(a: u64, b: u64) usize {
-    var mask: u64 = 1;
-    var different_bit_count: usize = 0;
-    for (0..(@sizeOf(u64) * std.mem.byte_size_in_bits)) |_| {
-        if ((a & mask) != (b & mask)) {
-            different_bit_count += 1;
-        }
-        mask <<= 2;
-    }
-    return different_bit_count;
-}
-
-pub fn solve_with_n_swaps(values: *const std.AutoHashMap(Name, bool), relationships: *std.AutoHashMap(Name, Relationship), n: u8, ones: []Name, zeroes: []Name, current_z: u64, expected_z: u64, swaps: *std.ArrayList(Name)) bool {
-    if (n == 0) {
-        var values_copy = values.clone() catch unreachable;
-        defer values_copy.deinit();
-        solve(&values_copy, relationships);
-        const actual_z = get_xyz('z', &values_copy);
-        if (expected_z == actual_z) {
-            std.debug.print("Found solution: {s}\n", .{swaps.items});
-        }
-        // std.debug.print("Checking swaps: {s}\nz = {d}\n", .{ swaps.items, actual_z });
-        return expected_z == actual_z;
-    }
-
-    for (ones) |one_name| {
-        for (zeroes) |zero_name| {
-            // Swap a and b
-            //TODO: Maybe we don't need to allocate here and can just swap back?
-            var swapped_relationships = relationships.clone() catch unreachable;
-            defer swapped_relationships.deinit();
-
-            const temp = swapped_relationships.get(one_name).?;
-            swapped_relationships.put(one_name, swapped_relationships.get(zero_name).?) catch unreachable;
-            swapped_relationships.put(zero_name, temp) catch unreachable;
-
-            var values_copy = values.clone() catch unreachable;
-            defer values_copy.deinit();
-            solve(&values_copy, &swapped_relationships);
-
-            // If this swap didn't change the overvall value don't use it
-            const new_z = get_xyz('z', &values_copy);
-            if (new_z == current_z) {
-                // std.debug.print("no change\n", .{});
-                continue;
-            }
-
-            var output_iter = values_copy.iterator();
-            var output_names_0 = std.ArrayList(Name).init(std.heap.page_allocator);
-            defer output_names_0.deinit();
-            var output_names_1 = std.ArrayList(Name).init(std.heap.page_allocator);
-            defer output_names_1.deinit();
-
-            while (output_iter.next()) |entry| {
-                if (entry.key_ptr[0] == 'x' or entry.key_ptr[0] == 'y' or std.meta.eql(entry.key_ptr.*, one_name) or std.meta.eql(entry.key_ptr.*, zero_name)) {
-                    continue;
+    // Search for invalid circuitry based on known structure of adder circuit
+    for (incorrect_bits) |bit| {
+        const name = build_name('z', bit);
+        const gate = relationships.get(name).?;
+        if (gate.operation == Operation.xor) {
+            const input_1_gate = relationships.get(gate.arg1).?;
+            const input_2_gate = relationships.get(gate.arg2).?;
+            var problem_gate_name: Name = undefined;
+            var expected_operation: Operation = undefined;
+            if (input_1_gate.operation == .or_ or input_1_gate.operation == .xor) {
+                if (input_2_gate.operation == .or_ or input_2_gate.operation == .xor) {
+                    @panic("Unhandled!");
                 }
-                var part_of_existing_swaps = false;
-                for (swaps.items) |swap_name| {
-                    if (std.meta.eql(entry.key_ptr.*, swap_name)) {
-                        part_of_existing_swaps = true;
+                expected_operation = if (input_1_gate.operation == .or_) .xor else .or_;
+                problem_gate_name = gate.arg2;
+            } else {
+                expected_operation = if (input_2_gate.operation == .or_) .xor else .or_;
+                problem_gate_name = gate.arg1;
+            }
+            if (expected_operation == .xor) {
+                // Find the gate that XOR's the x and y values for this z bit
+                const x_gate_name = build_name('x', bit);
+                const y_gate_name = build_name('y', bit);
+                var target_gate: Relationship = undefined;
+                var target_gate_name: Name = undefined;
+
+                var gate_iter = relationships.iterator();
+                while (gate_iter.next()) |g| {
+                    if ((std.meta.eql(g.value_ptr.arg1, x_gate_name) or std.meta.eql(g.value_ptr.arg2, x_gate_name)) and
+                        (std.meta.eql(g.value_ptr.arg1, y_gate_name) or std.meta.eql(g.value_ptr.arg2, y_gate_name)) and
+                        g.value_ptr.operation == .xor)
+                    {
+                        target_gate = g.value_ptr.*;
+                        target_gate_name = g.key_ptr.*;
                         break;
                     }
                 }
-                // TODO: continue with named loop
-                if (part_of_existing_swaps) {
-                    continue;
-                }
-                if (entry.value_ptr.*) {
-                    output_names_1.append(entry.key_ptr.*) catch unreachable;
-                } else {
-                    output_names_0.append(entry.key_ptr.*) catch unreachable;
+                swaps[swap_idx] = problem_gate_name;
+                swaps[swap_idx + 1] = target_gate_name;
+                swap_idx += 2;
+            } else {
+                @panic("Unhandled!");
+            }
+        } else {
+            // We expected to find an XOR but didn't find one
+            // Swap must occur with this gate and an XOR gate
+            const x_gate_name = build_name('x', bit);
+            const y_gate_name = build_name('y', bit);
+            var target_gate: Relationship = undefined;
+            var target_gate_name: Name = undefined;
+            var gate_iter = relationships.iterator();
+            while (gate_iter.next()) |g| {
+                if ((std.meta.eql(g.value_ptr.arg1, x_gate_name) or std.meta.eql(g.value_ptr.arg2, x_gate_name)) and
+                    (std.meta.eql(g.value_ptr.arg1, y_gate_name) or std.meta.eql(g.value_ptr.arg2, y_gate_name)) and
+                    g.value_ptr.operation == .xor)
+                {
+                    target_gate = g.value_ptr.*;
+                    target_gate_name = g.key_ptr.*;
+                    break;
                 }
             }
-
-            var new_swaps = swaps.clone() catch unreachable;
-            defer new_swaps.deinit();
-            new_swaps.append(one_name) catch unreachable;
-            new_swaps.append(zero_name) catch unreachable;
-
-            if (solve_with_n_swaps(values, &swapped_relationships, n - 1, output_names_1.items, output_names_0.items, new_z, expected_z, &new_swaps)) {
-                swaps.append(one_name) catch unreachable;
-                swaps.append(zero_name) catch unreachable;
-                return true;
+            gate_iter = relationships.iterator();
+            while (gate_iter.next()) |g| {
+                if ((std.meta.eql(g.value_ptr.arg1, target_gate_name) or std.meta.eql(g.value_ptr.arg2, target_gate_name)) and
+                    g.value_ptr.operation == .xor)
+                {
+                    target_gate = g.value_ptr.*;
+                    target_gate_name = g.key_ptr.*;
+                    break;
+                }
             }
+            swaps[swap_idx] = name;
+            swaps[swap_idx + 1] = target_gate_name;
+            swap_idx += 2;
         }
     }
 
-    return false;
+    std.mem.sort(Name, &swaps, {}, nameLessThan);
+
+    return swaps;
 }
 
 pub fn do_benchmark() void {
@@ -449,34 +385,9 @@ test "part 1 big" {
     try std.testing.expectEqual(53755311654662, result);
 }
 
-test "part 2 small" {
-    var reader = Reader.init(
-        \\x00: 0
-        \\x01: 1
-        \\x02: 0
-        \\x03: 1
-        \\x04: 0
-        \\x05: 1
-        \\y00: 0
-        \\y01: 0
-        \\y02: 1
-        \\y03: 1
-        \\y04: 0
-        \\y05: 1
-        \\
-        \\x00 AND y00 -> z05
-        \\x01 AND y01 -> z02
-        \\x02 AND y02 -> z01
-        \\x03 AND y03 -> z03
-        \\x04 AND y04 -> z04
-        \\x05 AND y05 -> z00
-    );
-    const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
-}
-
 test "part 2 big" {
     var reader = Reader.from_comptime_path(data_path);
     const result = part_two(&reader);
-    try std.testing.expectEqual(1, result);
+    const expected = .{ Name{ 'd', 'k', 'r' }, Name{ 'g', 'g', 'k' }, Name{ 'h', 'h', 'h' }, Name{ 'h', 't', 'p' }, Name{ 'r', 'h', 'v' }, Name{ 'z', '0', '5' }, Name{ 'z', '1', '5' }, Name{ 'z', '2', '0' } };
+    try std.testing.expectEqual(expected, result);
 }
